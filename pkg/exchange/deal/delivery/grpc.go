@@ -77,6 +77,7 @@ func (es *MyExchangeServer) Statistic(broker *BrokerID, ess Exchange_StatisticSe
 				Low:      ohlcv.Low,
 				Close:    ohlcv.Close,
 				Volume:   ohlcv.Volume,
+				Ticker:   ohlcv.Ticker,
 			})
 			if err != nil {
 				fmt.Println(err)
