@@ -4,21 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	configPkg "github.com/KeynihAV/exchange/pkg/broker/config"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-)
-
-var keyboard = tgbotapi.NewReplyKeyboard(
-	tgbotapi.NewKeyboardButtonRow(
-		tgbotapi.NewKeyboardButton("status"),
-		tgbotapi.NewKeyboardButton("deal"),
-		tgbotapi.NewKeyboardButton("cancel"),
-		tgbotapi.NewKeyboardButton("history"),
-	),
 )
 
 type brokerTgBot struct {
@@ -46,35 +36,42 @@ func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.Clie
 
 	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo}
 
+	var currentCommand string
+
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
-		if update.Message == nil || !update.Message.IsCommand() {
-			continue
-		}
-		chatID := update.Message.Chat.ID
-		msg := tgbotapi.NewMessage(chatID, update.Message.Text)
-		_, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, update.Message.From.ID, chatID)
-		if err != nil {
-			fmt.Printf("error creating client: %v\n", err)
-			continue
-		}
-
 		var messages []string
-		switch update.Message.Command() {
-		case "stats":
-			messages, err = tgBot.getStats(update.Message.Text)
-		}
 
-		if err != nil {
-			fmt.Printf("error processing message: %v\n", err)
-			bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
-			continue
+		if update.CallbackQuery != nil {
+			if currentCommand == "stats" {
+				messages, err = tgBot.getStats(update.CallbackQuery.Data)
+			}
+
+			if err != nil {
+				fmt.Printf("error processing message: %v\n", err)
+				bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, err.Error()))
+				continue
+			}
+			for _, msg := range messages {
+				bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, msg))
+			}
+		} else if update.Message.IsCommand() {
+			chatID := update.Message.Chat.ID
+			_, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, update.Message.From.ID, chatID)
+			if err != nil {
+				fmt.Printf("error creating client: %v\n", err)
+				continue
+			}
+			switch update.Message.Command() {
+			case "stats":
+				msg := tgbotapi.NewMessage(chatID, "Выберите инструмент")
+				msg.ReplyMarkup = tickersKeyboard(config)
+				if _, err = bot.Send(msg); err != nil {
+					fmt.Printf("error send msg: %v", err)
+				}
+			}
+			currentCommand = update.Message.Command()
 		}
-		for _, msg := range messages {
-			bot.Send(tgbotapi.NewMessage(chatID, msg))
-		}
-		msg.ReplyMarkup = keyboard
-		msg.DisableWebPagePreview = true
 	}
 
 	return nil
@@ -87,8 +84,8 @@ func listenWebhook(addr string) {
 	}
 }
 
-func (tgBot *brokerTgBot) getStats(msgTxt string) ([]string, error) {
-	stats, err := tgBot.statsRepo.GeStatsByTicker(strings.TrimPrefix(msgTxt, "/stats "))
+func (tgBot *brokerTgBot) getStats(ticker string) ([]string, error) {
+	stats, err := tgBot.statsRepo.GeStatsByTicker(ticker)
 	if err != nil {
 		return nil, fmt.Errorf("get stats %v", err)
 	}
@@ -101,4 +98,12 @@ func (tgBot *brokerTgBot) getStats(msgTxt string) ([]string, error) {
 	}
 
 	return messages, nil
+}
+
+func tickersKeyboard(config *configPkg.Config) tgbotapi.InlineKeyboardMarkup {
+	row := tgbotapi.NewInlineKeyboardRow()
+	for _, ticker := range config.Tickers {
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(ticker, ticker))
+	}
+	return tgbotapi.NewInlineKeyboardMarkup(row)
 }

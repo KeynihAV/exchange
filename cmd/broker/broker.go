@@ -20,6 +20,7 @@ func main() {
 		PGConnString:     "user=postgres password=123Qwer host=192.168.1.188 port=5432 sslmode=disable",
 		BrokerID:         1,
 		ExchangeEndpoint: ":8081",
+		Tickers:          []string{"SPFB.RTS"},
 	}
 
 	db, err := initDB(config)

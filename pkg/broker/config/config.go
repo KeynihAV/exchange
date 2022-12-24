@@ -7,4 +7,5 @@ type Config struct {
 	PGConnString     string
 	ExchangeEndpoint string
 	BrokerID         int
+	Tickers          []string
 }
