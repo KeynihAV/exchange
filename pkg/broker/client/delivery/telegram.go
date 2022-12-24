@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	configPkg "github.com/KeynihAV/exchange/pkg/broker/config"
+	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
@@ -19,7 +21,12 @@ var keyboard = tgbotapi.NewReplyKeyboard(
 	),
 )
 
-func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.ClientsManager) error {
+type brokerTgBot struct {
+	clientsManager *clientsUsecasePkg.ClientsManager
+	statsRepo      *statsRepoPkg.StatsRepo
+}
+
+func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.ClientsManager, statsRepo *statsRepoPkg.StatsRepo) error {
 	go listenWebhook(config.ListenAddr)
 
 	bot, err := tgbotapi.NewBotAPI(config.BotToken)
@@ -37,6 +44,8 @@ func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.Clie
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 20
 
+	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo}
+
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
 		if update.Message == nil || !update.Message.IsCommand() {
@@ -50,17 +59,22 @@ func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.Clie
 			continue
 		}
 
+		var messages []string
 		switch update.Message.Command() {
-		case "help":
-			msg.Text = "помощь"
+		case "stats":
+			messages, err = tgBot.getStats(update.Message.Text)
 		}
 
+		if err != nil {
+			fmt.Printf("error processing message: %v\n", err)
+			bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
+			continue
+		}
+		for _, msg := range messages {
+			bot.Send(tgbotapi.NewMessage(chatID, msg))
+		}
 		msg.ReplyMarkup = keyboard
 		msg.DisableWebPagePreview = true
-
-		if _, err := bot.Send(msg); err != nil {
-			fmt.Printf("error send msg: %v\n", err)
-		}
 	}
 
 	return nil
@@ -71,4 +85,20 @@ func listenWebhook(addr string) {
 	if err != nil {
 		log.Fatalf("http server not started: %v", err)
 	}
+}
+
+func (tgBot *brokerTgBot) getStats(msgTxt string) ([]string, error) {
+	stats, err := tgBot.statsRepo.GeStatsByTicker(strings.TrimPrefix(msgTxt, "/stats "))
+	if err != nil {
+		return nil, fmt.Errorf("get stats %v", err)
+	}
+
+	messages := make([]string, 0)
+	for _, stat := range stats {
+		msgTxt := fmt.Sprintf("time: %v, open: %v, high: %v, low: %v, close: %v, volume:%v",
+			stat.Time, stat.Open, stat.High, stat.Low, stat.Close, stat.Volume)
+		messages = append(messages, msgTxt)
+	}
+
+	return messages, nil
 }

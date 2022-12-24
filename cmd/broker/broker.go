@@ -16,7 +16,7 @@ func main() {
 	config := &configPkg.Config{
 		ListenAddr:       ":8082",
 		BotToken:         "5804418153:AAGww9r9ecm9EwIlG4JZk6Q452S5fTiJrWM",
-		WebhookURL:       "https://24f4-5-44-170-102.eu.ngrok.io",
+		WebhookURL:       "https://c713-5-44-170-102.eu.ngrok.io",
 		PGConnString:     "user=postgres password=123Qwer host=192.168.1.188 port=5432 sslmode=disable",
 		BrokerID:         1,
 		ExchangeEndpoint: ":8081",
@@ -45,7 +45,7 @@ func startBroker(db *sql.DB, config *configPkg.Config) error {
 
 	go statsDeliveryPkg.ConsumeStats(statsRepo, config)
 
-	err = clientDeliveryPkg.StartTgBot(config, clientsManager)
+	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo)
 
 	if err != nil {
 		return err

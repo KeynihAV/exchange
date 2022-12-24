@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/KeynihAV/exchange/pkg/broker/config"
+	statsPkg "github.com/KeynihAV/exchange/pkg/broker/stats"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
 	"google.golang.org/grpc"
@@ -37,7 +38,16 @@ func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) erro
 		} else if err == io.EOF {
 			break
 		}
-		err = statsRepo.Add(stat)
+		err = statsRepo.Add(&statsPkg.OHLCV{
+			TimeInt:  stat.Time,
+			Interval: stat.Interval,
+			Open:     stat.Open,
+			High:     stat.High,
+			Low:      stat.Low,
+			Close:    stat.Close,
+			Volume:   stat.Volume,
+			Ticker:   stat.Ticker,
+		})
 		if err != nil {
 			fmt.Printf("Error write stats: %v\n", err)
 		}
