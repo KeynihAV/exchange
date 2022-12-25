@@ -8,7 +8,8 @@ import (
 )
 
 type ClientsManager struct {
-	CR *clientRepoPkg.ClientsRepo
+	CR            *clientRepoPkg.ClientsRepo
+	ActiveDialogs map[int64]*clientPkg.Dialog
 }
 
 func NewClientsManager(db *sql.DB) (*ClientsManager, error) {
@@ -17,11 +18,12 @@ func NewClientsManager(db *sql.DB) (*ClientsManager, error) {
 		return nil, err
 	}
 	return &ClientsManager{
-		CR: cr,
+		CR:            cr,
+		ActiveDialogs: make(map[int64]*clientPkg.Dialog),
 	}, nil
 }
 
-func (cm *ClientsManager) CheckAndCreateClient(login string, ID int, chatID int64) (*clientPkg.Client, error) {
+func (cm *ClientsManager) CheckAndCreateClient(login string, ID int) (*clientPkg.Client, error) {
 	var client *clientPkg.Client
 
 	clients, err := cm.CR.GetByIDs(ID)
@@ -29,13 +31,13 @@ func (cm *ClientsManager) CheckAndCreateClient(login string, ID int, chatID int6
 		return nil, err
 	}
 	if len(clients) == 0 {
-		client = &clientPkg.Client{Login: login, TgID: ID, ChatID: chatID}
+		client = &clientPkg.Client{Login: login, TgID: ID}
 		err = cm.CR.Add(client)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		client, _ = clients[ID]
+		client = clients[ID]
 	}
 
 	return client, nil

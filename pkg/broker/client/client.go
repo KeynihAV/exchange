@@ -1,5 +1,7 @@
 package client
 
+import dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
+
 type Client struct {
 	ID      int
 	Login   string
@@ -15,4 +17,10 @@ type Position struct {
 	Volume   int32
 	Price    float32
 	Total    float32
+}
+
+type Dialog struct {
+	CurrentCommand string
+	LastMsg        string
+	CurrentOrder   *dealPkg.Order
 }

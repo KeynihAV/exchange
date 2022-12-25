@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
+	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	configPkg "github.com/KeynihAV/exchange/pkg/broker/config"
+	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
@@ -14,9 +17,15 @@ import (
 type brokerTgBot struct {
 	clientsManager *clientsUsecasePkg.ClientsManager
 	statsRepo      *statsRepoPkg.StatsRepo
+	dealsManager   *dealUsecasePkg.DealsManager
 }
 
-func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.ClientsManager, statsRepo *statsRepoPkg.StatsRepo) error {
+func StartTgBot(
+	config *configPkg.Config,
+	clientsManager *clientsUsecasePkg.ClientsManager,
+	statsRepo *statsRepoPkg.StatsRepo,
+	dealsManager *dealUsecasePkg.DealsManager) error {
+
 	go listenWebhook(config.ListenAddr)
 
 	bot, err := tgbotapi.NewBotAPI(config.BotToken)
@@ -34,43 +43,91 @@ func StartTgBot(config *configPkg.Config, clientsManager *clientsUsecasePkg.Clie
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 20
 
-	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo}
-
-	var currentCommand string
+	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo, dealsManager: dealsManager}
 
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
 		var messages []string
 
 		if update.CallbackQuery != nil {
-			if currentCommand == "stats" {
+			chatID := update.CallbackQuery.Message.Chat.ID
+			dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+			switch cmdTxt := dialog.CurrentCommand; {
+			case cmdTxt == "stats":
 				messages, err = tgBot.getStats(update.CallbackQuery.Data)
+				dialog.CurrentCommand = ""
+			case cmdTxt == "buy" || cmdTxt == "sell":
+				dialog.CurrentOrder.Ticker = update.CallbackQuery.Data
+				dialog.LastMsg = "Укажите цену"
+				messages = append(messages, dialog.LastMsg)
 			}
-
 			if err != nil {
 				fmt.Printf("error processing message: %v\n", err)
-				bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, err.Error()))
+				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
 				continue
 			}
 			for _, msg := range messages {
-				bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, msg))
+				bot.Send(tgbotapi.NewMessage(chatID, msg))
 			}
 		} else if update.Message.IsCommand() {
 			chatID := update.Message.Chat.ID
-			_, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, update.Message.From.ID, chatID)
+			dialog := &clientPkg.Dialog{}
+			client, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, int(chatID))
 			if err != nil {
 				fmt.Printf("error creating client: %v\n", err)
 				continue
 			}
-			switch update.Message.Command() {
-			case "stats":
+			switch cmdTxt := update.Message.Command(); {
+			case cmdTxt == "stats" || cmdTxt == "buy" || cmdTxt == "sell":
 				msg := tgbotapi.NewMessage(chatID, "Выберите инструмент")
 				msg.ReplyMarkup = tickersKeyboard(config)
 				if _, err = bot.Send(msg); err != nil {
 					fmt.Printf("error send msg: %v", err)
 				}
+
+				if cmdTxt == "buy" || cmdTxt == "sell" {
+					dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.BrokerID, int32(client.ID))
+					if err != nil {
+						fmt.Printf("not create new order")
+						continue
+					}
+				}
 			}
-			currentCommand = update.Message.Command()
+
+			dialog.CurrentCommand = update.Message.Command()
+			tgBot.clientsManager.ActiveDialogs[chatID] = dialog
+		} else {
+			chatID := update.Message.Chat.ID
+			dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+			switch dialog.LastMsg {
+			case "Укажите цену":
+				price, err := strconv.ParseFloat(update.Message.Text, 32)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не правильно введена цена: %v\n Попробуйте еще", err.Error())))
+					continue
+				}
+
+				dialog.CurrentOrder.Price = float32(price)
+				dialog.LastMsg = "Укажите объем"
+				messages = append(messages, dialog.LastMsg)
+			case "Укажите объем":
+				volume, err := strconv.ParseInt(update.Message.Text, 10, 32)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не правильно введен объем: %v\n Попробуйте еще", err.Error())))
+					continue
+				}
+				dialog.CurrentOrder.Volume = int32(volume)
+				orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder)
+				if err != nil {
+					fmt.Printf("order creation error: %v", err)
+					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось создать заявку: %v", err)))
+					continue
+				}
+				messages = append(messages, fmt.Sprintf("Создана заявка с номером %v", orderID))
+			}
+			for _, msg := range messages {
+				bot.Send(tgbotapi.NewMessage(chatID, msg))
+			}
 		}
 	}
 

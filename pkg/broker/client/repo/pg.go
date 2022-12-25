@@ -53,7 +53,7 @@ func (cr *ClientsRepo) GetByIDs(ids ...int) (map[int]*clientPkg.Client, error) {
 		values = append(values, v)
 		i++
 	}
-	queryString := fmt.Sprintf(`SELECT id, login, chatID, balance FROM clients WHERE tgID IN (%v)`, strings.Join(params, ","))
+	queryString := fmt.Sprintf(`SELECT id, tgID, login, chatID, balance FROM clients WHERE tgID IN (%v)`, strings.Join(params, ","))
 	result, err := cr.DB.Query(queryString, values...)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (cr *ClientsRepo) GetByIDs(ids ...int) (map[int]*clientPkg.Client, error) {
 	clients := make(map[int]*clientPkg.Client)
 	for result.Next() {
 		client := &clientPkg.Client{}
-		err = result.Scan(&client.ID, &client.Login, &client.ChatID, &client.Balance)
+		err = result.Scan(&client.ID, &client.TgID, &client.Login, &client.ChatID, &client.Balance)
 		if err != nil {
 			return nil, err
 		}
