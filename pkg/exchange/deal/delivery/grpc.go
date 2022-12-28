@@ -31,7 +31,6 @@ func (es *MyExchangeServer) Create(ctx context.Context, deal *Deal) (*DealID, er
 		ClientID: deal.ClientID,
 		Ticker:   deal.Ticker,
 		Volume:   deal.Volume,
-		Time:     deal.Time,
 		Price:    deal.Price,
 		Type:     deal.Type,
 	}

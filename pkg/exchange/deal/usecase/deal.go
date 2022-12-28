@@ -55,6 +55,7 @@ func NewDealsManager(config *configPkg.ExchangeConfig) (*DealsManager, error) {
 }
 
 func (dm *DealsManager) CreateOrder(order *dealPkg.Order) (int64, error) {
+	order.Time = int32(time.Now().Unix())
 	return dm.ER.AddOrder(order)
 }
 
@@ -111,7 +112,8 @@ func (dm *DealsManager) ProcessingTradingOperations(IntervalSeconds int) {
 }
 
 func (dm *DealsManager) makeDeal(order *dealPkg.Order, volume int32) error {
-	order.Volume = volume
+	order.Time = int32(time.Now().Unix())
+	order.CompletedVolume += volume
 	deal, err := dm.ER.MakeDeal(order, volume)
 	if err != nil {
 		return err

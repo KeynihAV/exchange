@@ -84,7 +84,7 @@ func initDB(db *sql.DB, config *configPkg.ExchangeConfig) (*sql.DB, error) {
 			ticker varchar(200) NOT NULL,
 			volume int NOT NULL,
 			completedVolume int NOT NULL,
-			time time NOT NULL,
+			time int NOT NULL,
 			price float8 NOT NULL,
 			type varchar(10) NOT NULL);
 		CREATE UNIQUE INDEX IF NOT EXISTS sell_idx ON orders (ticker, type, price, time, id);`)
@@ -101,10 +101,10 @@ func initDB(db *sql.DB, config *configPkg.ExchangeConfig) (*sql.DB, error) {
 			ticker varchar(200) NOT NULL,
 			volume int NOT NULL,
 			partial boolean NOT NULL,
-			time time NOT NULL,
+			time int NOT NULL,
 			price float8 NOT NULL,
 			type varchar(10) NOT NULL,
-			shipped time NOT NULL);`)
+			shipped int);`)
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +113,17 @@ func initDB(db *sql.DB, config *configPkg.ExchangeConfig) (*sql.DB, error) {
 }
 
 func (ed *ExchangeDB) AddOrder(deal *dealPkg.Order) (int64, error) {
-	result, err := ed.DB.Exec(`INSERT INTO orders(brokerID, clientID, ticker, volume, completedVolume, time, price, type)
-		values($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		deal.BrokerID, deal.ClientID, deal.Ticker, deal.Volume, 0, deal.Time, deal.Price, deal.Type)
+
+	query := `INSERT INTO orders(brokerID, clientID, ticker, volume, completedVolume, time, price, type)
+	values($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`
+	statement, err := ed.DB.Prepare(query)
 	if err != nil {
 		return 0, err
 	}
+	defer statement.Close()
 
-	lastID, err := result.LastInsertId()
+	var lastID int64
+	err = statement.QueryRow(deal.BrokerID, deal.ClientID, deal.Ticker, deal.Volume, 0, deal.Time, deal.Price, deal.Type).Scan(&lastID)
 	if err != nil {
 		return 0, err
 	}
@@ -129,7 +132,7 @@ func (ed *ExchangeDB) AddOrder(deal *dealPkg.Order) (int64, error) {
 }
 
 func (ed *ExchangeDB) DeleteOrder(dealID int64) error {
-	_, err := ed.DB.Exec(`DELETE FROM orders WHERE id = ?`, dealID)
+	_, err := ed.DB.Exec(`DELETE FROM orders WHERE id = $1`, dealID)
 	if err != nil {
 		return err
 	}
@@ -147,7 +150,8 @@ func (ed *ExchangeDB) GetOrdersForClose(ticker string, price float32) ([]*dealPk
 		Orders.volume -	Orders.completedVolume as volume,
 		Orders.time,
 		Orders.type,
-		Orders.price
+		Orders.price,
+		Orders.completedVolume as completedVolume
 	FROM orders as Orders
 	WHERE Orders.ticker = $1 AND Orders.price = $2
 	ORDER BY 
@@ -161,7 +165,7 @@ func (ed *ExchangeDB) GetOrdersForClose(ticker string, price float32) ([]*dealPk
 	for queryResult.Next() {
 		order := &dealPkg.Order{}
 		err = queryResult.Scan(&order.ID, &order.BrokerID, &order.ClientID, &order.Ticker, &order.Volume, &order.Time,
-			&order.Type, &order.Price)
+			&order.Type, &order.Price, &order.CompletedVolume)
 		if err != nil {
 			return nil, err
 		}
@@ -187,11 +191,11 @@ func (ed *ExchangeDB) MakeDeal(order *dealPkg.Order, volumeToClose int32) (*deal
 		}
 	}()
 
-	partialClose := order.Volume != volumeToClose
+	partialClose := order.Volume-volumeToClose != 0
 	if partialClose {
-		result, err = ed.DB.Exec(`UPDATE orders SET completedVolume = ? WHERE id = ?;`, order.CompletedVolume, order.ID)
+		result, err = tx.Exec(`UPDATE orders SET completedVolume = $1 WHERE id = $2;`, order.CompletedVolume, order.ID)
 	} else {
-		result, err = ed.DB.Exec(`DELETE FROM orders WHERE id = ?`, order.ID)
+		result, err = tx.Exec(`DELETE FROM orders WHERE id = $1`, order.ID)
 	}
 	if err != nil {
 		return nil, err
@@ -201,14 +205,14 @@ func (ed *ExchangeDB) MakeDeal(order *dealPkg.Order, volumeToClose int32) (*deal
 		return nil, err
 	}
 
-	//тут нужно сделать вставку в сделки и похоже нужно создать отдельные объекты заказ и сделка
-	resultDeal, err := ed.DB.Exec(`INSERT INTO deals(orderID, brokerID, clientID, ticker, volume, partial, time, price, type)
-		values($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		order.ID, order.BrokerID, order.ClientID, order.Ticker, volumeToClose, partialClose, order.Time, order.Price)
+	query := `INSERT INTO deals(orderID, brokerID, clientID, ticker, volume, partial, time, price, type) 
+	values($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;`
+	statement, err := tx.Prepare(query)
 	if err != nil {
 		return nil, err
 	}
-	lastID, err := resultDeal.LastInsertId()
+	var lastID int64
+	err = statement.QueryRow(order.ID, order.BrokerID, order.ClientID, order.Ticker, volumeToClose, partialClose, order.Time, order.Price, order.Type).Scan(&lastID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +233,7 @@ func (ed *ExchangeDB) MakeDeal(order *dealPkg.Order, volumeToClose int32) (*deal
 }
 
 func (ed *ExchangeDB) MarkDealShipped(dealID int64) error {
-	result, err := ed.DB.Exec(`UPDATE deals SET shipped = ? WHERE id = ?`, time.Now(), dealID)
+	result, err := ed.DB.Exec(`UPDATE deals SET shipped = $1 WHERE id = $2`, time.Now().Unix(), dealID)
 	if err != nil {
 		return err
 	}

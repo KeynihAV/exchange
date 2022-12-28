@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
@@ -60,6 +61,8 @@ func StartTgBot(
 				dialog.CurrentOrder.Ticker = update.CallbackQuery.Data
 				dialog.LastMsg = "Укажите цену"
 				messages = append(messages, dialog.LastMsg)
+			case cmdTxt == "cancel":
+				messages, err = tgBot.cancelOrder(update.CallbackQuery.Data, config)
 			}
 			if err != nil {
 				fmt.Printf("error processing message: %v\n", err)
@@ -83,6 +86,7 @@ func StartTgBot(
 				msg.ReplyMarkup = tickersKeyboard(config)
 				if _, err = bot.Send(msg); err != nil {
 					fmt.Printf("error send msg: %v", err)
+					continue
 				}
 
 				if cmdTxt == "buy" || cmdTxt == "sell" {
@@ -92,6 +96,16 @@ func StartTgBot(
 						continue
 					}
 				}
+			case cmdTxt == "cancel":
+				replyMarkup, err := tgBot.ordersKeyboard(client.ID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
+					fmt.Printf("Ошибка отмены заявки: %v", err.Error())
+					continue
+				}
+				msg := tgbotapi.NewMessage(chatID, "Выберите заявку для отмены")
+				msg.ReplyMarkup = replyMarkup
+				bot.Send(msg)
 			}
 
 			dialog.CurrentCommand = update.Message.Command()
@@ -117,7 +131,7 @@ func StartTgBot(
 					continue
 				}
 				dialog.CurrentOrder.Volume = int32(volume)
-				orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder)
+				orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder, config)
 				if err != nil {
 					fmt.Printf("order creation error: %v", err)
 					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось создать заявку: %v", err)))
@@ -157,10 +171,39 @@ func (tgBot *brokerTgBot) getStats(ticker string) ([]string, error) {
 	return messages, nil
 }
 
+func (tgBot *brokerTgBot) cancelOrder(callbackData string, config *configPkg.Config) ([]string, error) {
+	orderID, err := strconv.ParseInt(callbackData, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parseInt in cancel order %v", err)
+	}
+
+	err = tgBot.dealsManager.CancelOrder(orderID, config)
+	if err != nil {
+		return nil, fmt.Errorf("cancel order %v", err)
+	}
+
+	return []string{fmt.Sprintf("Заявка %v удалена", orderID)}, nil
+}
+
 func tickersKeyboard(config *configPkg.Config) tgbotapi.InlineKeyboardMarkup {
 	row := tgbotapi.NewInlineKeyboardRow()
 	for _, ticker := range config.Tickers {
 		row = append(row, tgbotapi.NewInlineKeyboardButtonData(ticker, ticker))
 	}
 	return tgbotapi.NewInlineKeyboardMarkup(row)
+}
+
+func (tgBot *brokerTgBot) ordersKeyboard(clientID int) (tgbotapi.InlineKeyboardMarkup, error) {
+	orders, err := tgBot.dealsManager.OrdersByClient(clientID)
+	if err != nil {
+		return tgbotapi.InlineKeyboardMarkup{}, err
+	}
+
+	markup := tgbotapi.NewInlineKeyboardMarkup()
+	for _, order := range orders {
+		orderDescr := fmt.Sprintf("Заявка %v от %v", order.ID, time.Unix(int64(order.Time), 0).Format(time.RFC822))
+		row := tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData(orderDescr, strconv.FormatInt(order.ID, 10)))
+		markup.InlineKeyboard = append(markup.InlineKeyboard, row)
+	}
+	return markup, nil
 }
