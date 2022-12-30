@@ -40,7 +40,8 @@ func NewDealRepo(db *sql.DB) (*DealRepo, error) {
 			partial boolean NOT NULL,
 			time int NOT NULL,
 			price float8 NOT NULL,
-			type varchar(10) NOT NULL);
+			type varchar(10) NOT NULL,
+			exchangeOrderID int NOT NULL);
 		CREATE INDEX IF NOT EXISTS exchangeID_idx ON deals (exchangeID);
 		CREATE INDEX IF NOT EXISTS aggregate_idx ON deals (clientID, ticker);`)
 	if err != nil {
@@ -71,8 +72,8 @@ func (dr *DealRepo) AddOrder(order *dealPkg.Order) (int64, error) {
 	return lastID, nil
 }
 
-func (dr *DealRepo) DeleteOrder(id int64) error {
-	result, err := dr.DB.Exec(`DELETE FROM orders WHERE id = $1`, id)
+func (dr *DealRepo) DeleteOrder(id int64, tx *sql.Tx) error {
+	result, err := tx.Exec(`DELETE FROM orders WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
@@ -118,6 +119,19 @@ func (dr *DealRepo) GetExchangeID(orderID int64) (int64, error) {
 	return exchangeID, nil
 }
 
+func (dr *DealRepo) GetOrderID(exchangeID int64) (int64, error) {
+	qr := dr.DB.QueryRow(`SELECT id
+		FROM orders WHERE exchangeID = $1`, exchangeID)
+
+	var orderID int64
+	err := qr.Scan(&orderID)
+	if err != nil {
+		return 0, err
+	}
+
+	return orderID, nil
+}
+
 func (dr *DealRepo) MarkOrderShipped(id, exchangeID int64) error {
 	result, err := dr.DB.Exec(`UPDATE orders SET exchangeID = $1 WHERE id = $2`, exchangeID, id)
 	if err != nil {
@@ -130,9 +144,65 @@ func (dr *DealRepo) MarkOrderShipped(id, exchangeID int64) error {
 	return nil
 }
 
-func (dr *DealRepo) WriteDeal(deal *dealPkg.Deal) error {
-	result, err := dr.DB.Exec(`INSERT INTO deals(exchangeID, clientID, ticker, volume, partial, time, price,type)`,
-		deal.ID, deal.ClientID, deal.Ticker, deal.Volume, deal.Partial, deal.Time, deal.Price)
+func (dr *DealRepo) WriteDeal(deal *dealPkg.Deal, tx *sql.Tx) error {
+	result, err := tx.Exec(`INSERT INTO deals(exchangeID, clientID, ticker, volume, partial, time, price, type, exchangeOrderID)
+	values($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		deal.ID, deal.ClientID, deal.Ticker, deal.Volume, deal.Partial, deal.Time, deal.Price, deal.Type, deal.OrderID)
+	if err != nil {
+		return err
+	}
+	_, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (dr *DealRepo) UpdateOrderClosedVolume(orderID int64, completedVolume int32, tx *sql.Tx) error {
+	result, err := tx.Exec(`UPDATE orders SET completedVolume = completedVolume + $1 WHERE id = $2`,
+		completedVolume, orderID)
+	if err != nil {
+		return err
+	}
+	_, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (dr *DealRepo) OrderClosedVolume(exchangeOrderID int64, tx *sql.Tx) (int32, error) {
+	qr := tx.QueryRow(`SELECT SUM(volume)
+		FROM deals WHERE exchangeOrderID = $1`, exchangeOrderID)
+
+	var closedVolume int32
+	err := qr.Scan(&closedVolume)
+	if err != nil {
+		return 0, err
+	}
+
+	return closedVolume, nil
+}
+
+func (dr *DealRepo) UpdatePositionsByClientAndTicker(clientID int32, ticker string, tx *sql.Tx) error {
+	result, err := tx.Exec(`
+		INSERT INTO positions (clientID, ticker, volume, total, price)
+		SELECT 
+			deals.clientID,
+			deals.ticker,
+			SUM(CASE WHEN deals.type = $1 THEN deals.volume
+					ELSE -deals.volume 
+				END) as volume,
+			SUM(CASE WHEN deals.type = $1 THEN deals.volume * deals.price
+				ELSE -deals.volume * deals.price
+			END) as total,
+			AVG(deals.price) as price
+		FROM deals as deals
+		WHERE deals.clientID = $2 AND deals.ticker = $3
+		GROUP BY deals.clientID, deals.ticker
+		ON CONFLICT (clientID, ticker) DO UPDATE
+			SET volume = EXCLUDED.volume, total = EXCLUDED.total, price = EXCLUDED.price`,
+		"buy", clientID, ticker)
 	if err != nil {
 		return err
 	}

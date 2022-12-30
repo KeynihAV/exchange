@@ -61,7 +61,7 @@ func StartTgBot(
 				dialog.CurrentOrder.Ticker = update.CallbackQuery.Data
 				dialog.LastMsg = "Укажите цену"
 				messages = append(messages, dialog.LastMsg)
-			case cmdTxt == "cancel":
+			case cmdTxt == "orders":
 				messages, err = tgBot.cancelOrder(update.CallbackQuery.Data, config)
 			}
 			if err != nil {
@@ -96,20 +96,31 @@ func StartTgBot(
 						continue
 					}
 				}
-			case cmdTxt == "cancel":
+			case cmdTxt == "orders":
 				replyMarkup, err := tgBot.ordersKeyboard(client.ID)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
 					fmt.Printf("Ошибка отмены заявки: %v", err.Error())
 					continue
 				}
-				msg := tgbotapi.NewMessage(chatID, "Выберите заявку для отмены")
+				msg := tgbotapi.NewMessage(chatID, "Ваши заявки: (нажмите на заявку для отмены)")
 				msg.ReplyMarkup = replyMarkup
 				bot.Send(msg)
+			case cmdTxt == "balance":
+				messages, err = tgBot.getBalance(client)
 			}
 
 			dialog.CurrentCommand = update.Message.Command()
 			tgBot.clientsManager.ActiveDialogs[chatID] = dialog
+
+			if err != nil {
+				fmt.Printf("error processing message: %v\n", err)
+				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
+				continue
+			}
+			for _, msg := range messages {
+				bot.Send(tgbotapi.NewMessage(chatID, msg))
+			}
 		} else {
 			chatID := update.Message.Chat.ID
 			dialog := tgBot.clientsManager.ActiveDialogs[chatID]
@@ -201,9 +212,33 @@ func (tgBot *brokerTgBot) ordersKeyboard(clientID int) (tgbotapi.InlineKeyboardM
 
 	markup := tgbotapi.NewInlineKeyboardMarkup()
 	for _, order := range orders {
-		orderDescr := fmt.Sprintf("Заявка %v от %v", order.ID, time.Unix(int64(order.Time), 0).Format(time.RFC822))
+		status := "ожидает исполнения"
+		if order.CompletedVolume > 0 {
+			status = "частично исполнена"
+		}
+		orderType := "Покупка"
+		if order.Type == "sell" {
+			orderType = "Продажа"
+		}
+		orderDescr := fmt.Sprintf("%v №:%v от %v %v %vшт (%v)",
+			orderType, order.ID, time.Unix(int64(order.Time), 0).Format("02 Jan 06 15:04"), order.Ticker, order.Volume, status)
 		row := tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData(orderDescr, strconv.FormatInt(order.ID, 10)))
 		markup.InlineKeyboard = append(markup.InlineKeyboard, row)
 	}
 	return markup, nil
+}
+
+func (tgBot *brokerTgBot) getBalance(client *clientPkg.Client) ([]string, error) {
+	positions, err := tgBot.clientsManager.GetBalance(client)
+	if err != nil {
+		return nil, fmt.Errorf("error get balance: %v", err)
+	}
+	messages := make([]string, len(positions))
+
+	for _, position := range positions {
+		messages = append(messages, fmt.Sprintf("ticker: %v, volume: %v, total: %.2f, price(avg): %.2f",
+			position.Ticker, position.Volume, position.Total, position.Price))
+	}
+
+	return messages, nil
 }

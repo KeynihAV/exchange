@@ -36,7 +36,7 @@ func NewClientsRepo(db *sql.DB) (*ClientsRepo, error) {
 			volume int NOT NULL,			
 			price float8 NOT NULL,
 			total float8 NOT NULL);
-		CREATE UNIQUE INDEX IF NOT EXISTS client_idx ON positions (clientID);`)
+		CREATE UNIQUE INDEX IF NOT EXISTS client_idx ON positions (clientID, ticker);`)
 	if err != nil {
 		return nil, err
 	}
@@ -89,4 +89,25 @@ func (cr *ClientsRepo) Add(client *clientPkg.Client) error {
 	}
 
 	return nil
+}
+
+func (cr *ClientsRepo) GetBalance(client *clientPkg.Client) ([]*clientPkg.Position, error) {
+	result, err := cr.DB.Query(`SELECT id, clientID, ticker, volume, price, total
+		 FROM positions WHERE clientID = $1`, client.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer result.Close()
+
+	positions := make([]*clientPkg.Position, 0)
+	for result.Next() {
+		position := &clientPkg.Position{}
+		err = result.Scan(&position.ID, &position.ClientID, &position.Ticker, &position.Volume, &position.Price, &position.Total)
+		if err != nil {
+			return nil, err
+		}
+		positions = append(positions, position)
+	}
+
+	return positions, nil
 }

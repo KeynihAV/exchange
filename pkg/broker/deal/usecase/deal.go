@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
@@ -62,9 +63,17 @@ func (dm *DealsManager) CancelOrder(id int64, config *config.Config) error {
 		return err
 	}
 
-	err = dm.DR.DeleteOrder(id)
+	tx, err := dm.DR.DB.BeginTx(context.TODO(), &sql.TxOptions{})
 	if err != nil {
 		return err
+	}
+
+	err = dm.DR.DeleteOrder(id, tx)
+	if err != nil {
+		tx.Rollback()
+		return err
+	} else {
+		tx.Commit()
 	}
 
 	return nil //вообще тут не очень, по идее нужен outbox pattern, чтобы сообщение писалось в бд и доставлялось отдельным потоком до победного
@@ -75,12 +84,46 @@ func (dm *DealsManager) OrdersByClient(clientID int) ([]*dealPkg.Order, error) {
 }
 
 func (dm *DealsManager) DealProcessing(deal *dealPkg.Deal) error {
-	//Записать саму сделку
-	err := dm.DR.WriteDeal(deal)
+	tx, err := dm.DR.DB.BeginTx(context.TODO(), &sql.TxOptions{})
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
+
+	//Записать саму сделку
+	err = dm.DR.WriteDeal(deal, tx)
+	if err != nil {
+		return err
+	}
+
+	//ид заявки по сделке
+	orderID, err := dm.DR.GetOrderID(deal.OrderID)
+	if err != nil {
+		return err
+	}
+
 	//Удалить\обновить заявку
+	if deal.Partial {
+		closedVolume, err := dm.DR.OrderClosedVolume(deal.OrderID, tx)
+		if err != nil {
+			return err
+		}
+		dm.DR.UpdateOrderClosedVolume(orderID, closedVolume, tx)
+	} else {
+		dm.DR.DeleteOrder(orderID, tx)
+	}
+
 	//Обновить портфель
+	err = dm.DR.UpdatePositionsByClientAndTicker(deal.ClientID, deal.Ticker, tx)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

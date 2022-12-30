@@ -42,3 +42,7 @@ func (cm *ClientsManager) CheckAndCreateClient(login string, ID int) (*clientPkg
 
 	return client, nil
 }
+
+func (cm *ClientsManager) GetBalance(client *clientPkg.Client) ([]*clientPkg.Position, error) {
+	return cm.CR.GetBalance(client)
+}

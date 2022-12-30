@@ -103,6 +103,7 @@ func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) erro
 			Price:    deal.Price,
 			ID:       deal.ID,
 			OrderID:  deal.OrderID,
+			Type:     deal.Type,
 		})
 		if err != nil {
 			fmt.Printf("Error write deal: %v\n", err)
