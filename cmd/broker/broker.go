@@ -7,22 +7,20 @@ import (
 
 	clientDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/client/delivery"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
-	configPkg "github.com/KeynihAV/exchange/pkg/broker/config"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/deal/delivery"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
 	statsDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/stats/delivery"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 )
 
+var appName = "broker"
+
 func main() {
-	config := &configPkg.Config{
-		ListenAddr:       ":8082",
-		BotToken:         "5804418153:AAGww9r9ecm9EwIlG4JZk6Q452S5fTiJrWM",
-		WebhookURL:       "https://a2ed-5-44-170-102.eu.ngrok.io",
-		PGConnString:     "user=postgres password=123Qwer host=192.168.1.188 port=5432 sslmode=disable",
-		BrokerID:         1,
-		ExchangeEndpoint: ":8081",
-		Tickers:          []string{"SPFB.RTS"},
+	config := &configPkg.Config{}
+	err := configPkg.Read(appName, config)
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	db, err := initDB(config)
@@ -66,9 +64,12 @@ func startBroker(db *sql.DB, config *configPkg.Config) error {
 func initDB(config *configPkg.Config) (*sql.DB, error) {
 	dbName := "broker"
 
+	connString := fmt.Sprintf("user=%v password=%v host=%v port=%v sslmode=disable",
+		config.DB.Username, config.DB.Password, config.DB.Host, config.DB.Port)
+
 	var DBMS *sql.DB
 	var err error
-	DBMS, err = sql.Open("pgx", config.PGConnString)
+	DBMS, err = sql.Open("pgx", connString)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,7 @@ func initDB(config *configPkg.Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	brokerDB, err = sql.Open("pgx", fmt.Sprintf("%v dbname=%v", config.PGConnString, dbName))
+	brokerDB, err = sql.Open("pgx", fmt.Sprintf("%v dbname=%v", connString, dbName))
 	if err != nil {
 		return nil, err
 	}

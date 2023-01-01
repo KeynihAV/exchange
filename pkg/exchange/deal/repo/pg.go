@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	configPkg "github.com/KeynihAV/exchange/pkg/exchange/config"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -15,7 +15,7 @@ type ExchangeDB struct {
 	DB *sql.DB
 }
 
-func NewExchangeDB(db *sql.DB, config *configPkg.ExchangeConfig) (*ExchangeDB, error) {
+func NewExchangeDB(db *sql.DB, config *configPkg.Config) (*ExchangeDB, error) {
 	db, err := initDB(db, config)
 	if err != nil {
 		return nil, err
@@ -26,13 +26,15 @@ func NewExchangeDB(db *sql.DB, config *configPkg.ExchangeConfig) (*ExchangeDB, e
 	}, nil
 }
 
-func initDB(db *sql.DB, config *configPkg.ExchangeConfig) (*sql.DB, error) {
+func initDB(db *sql.DB, config *configPkg.Config) (*sql.DB, error) {
 	dbName := "exchange"
 
+	connString := fmt.Sprintf("user=%v password=%v host=%v port=%v sslmode=disable",
+		config.DB.Username, config.DB.Password, config.DB.Host, config.DB.Port)
 	var DBMS *sql.DB
 	var err error
 	if db == nil {
-		DBMS, err = sql.Open("pgx", config.PGConnString)
+		DBMS, err = sql.Open("pgx", connString)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +65,7 @@ func initDB(db *sql.DB, config *configPkg.ExchangeConfig) (*sql.DB, error) {
 			return nil, err
 		}
 
-		exchangeDB, err = sql.Open("pgx", fmt.Sprintf("%v dbname=%v", config.PGConnString, dbName))
+		exchangeDB, err = sql.Open("pgx", fmt.Sprintf("%v dbname=%v", connString, dbName))
 		if err != nil {
 			return nil, err
 		}

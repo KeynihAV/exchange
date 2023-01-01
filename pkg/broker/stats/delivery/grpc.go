@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/KeynihAV/exchange/pkg/broker/config"
 	statsPkg "github.com/KeynihAV/exchange/pkg/broker/stats"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
+	"github.com/KeynihAV/exchange/pkg/config"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -15,7 +15,7 @@ import (
 
 func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) error {
 	grcpConn, err := grpc.Dial(
-		config.ExchangeEndpoint,
+		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
@@ -26,7 +26,7 @@ func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) erro
 	md := metadata.Pairs()
 
 	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
-	statsStream, err := exchClient.Statistic(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.BrokerID)})
+	statsStream, err := exchClient.Statistic(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.Broker.ID)})
 	if err != nil {
 		fmt.Printf("error get stats stream %v\n", err)
 	}

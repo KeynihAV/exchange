@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/KeynihAV/exchange/pkg/broker/config"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/deal/delivery"
 	dealRepoPkg "github.com/KeynihAV/exchange/pkg/broker/deal/repo"
+	"github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 )
 

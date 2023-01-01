@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/KeynihAV/exchange/pkg/broker/config"
+	"github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
 	"google.golang.org/grpc"
@@ -18,7 +18,7 @@ type DealsManagerInterface interface {
 
 func CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
 	grcpConn, err := grpc.Dial(
-		config.ExchangeEndpoint,
+		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
@@ -46,7 +46,7 @@ func CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
 
 func CancelOrder(exchangeID int64, config *config.Config) error {
 	grcpConn, err := grpc.Dial(
-		config.ExchangeEndpoint,
+		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
@@ -71,7 +71,7 @@ func CancelOrder(exchangeID int64, config *config.Config) error {
 
 func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) error {
 	grcpConn, err := grpc.Dial(
-		config.ExchangeEndpoint,
+		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
@@ -82,7 +82,7 @@ func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) erro
 	md := metadata.Pairs()
 
 	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
-	resultsStream, err := exchClient.Results(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.BrokerID)})
+	resultsStream, err := exchClient.Results(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.Broker.ID)})
 	if err != nil {
 		fmt.Printf("error get stats stream %v\n", err)
 	}

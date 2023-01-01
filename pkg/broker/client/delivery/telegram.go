@@ -9,9 +9,9 @@ import (
 
 	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
-	configPkg "github.com/KeynihAV/exchange/pkg/broker/config"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
@@ -27,14 +27,14 @@ func StartTgBot(
 	statsRepo *statsRepoPkg.StatsRepo,
 	dealsManager *dealUsecasePkg.DealsManager) error {
 
-	go listenWebhook(config.ListenAddr)
+	go listenWebhook(":" + strconv.Itoa(config.HTTP.Port))
 
-	bot, err := tgbotapi.NewBotAPI(config.BotToken)
+	bot, err := tgbotapi.NewBotAPI(config.Bot.Token)
 	if err != nil {
 		return fmt.Errorf("not create bot api: %v", err)
 	}
 
-	resp, err := bot.SetWebhook(tgbotapi.NewWebhook(config.WebhookURL))
+	resp, err := bot.SetWebhook(tgbotapi.NewWebhook(config.Bot.WebhookURL))
 	if err != nil {
 		return fmt.Errorf("not set webhook: %v", err)
 	}
@@ -90,7 +90,7 @@ func StartTgBot(
 				}
 
 				if cmdTxt == "buy" || cmdTxt == "sell" {
-					dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.BrokerID, int32(client.ID))
+					dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.Broker.ID, int32(client.ID))
 					if err != nil {
 						fmt.Printf("not create new order")
 						continue
@@ -198,7 +198,7 @@ func (tgBot *brokerTgBot) cancelOrder(callbackData string, config *configPkg.Con
 
 func tickersKeyboard(config *configPkg.Config) tgbotapi.InlineKeyboardMarkup {
 	row := tgbotapi.NewInlineKeyboardRow()
-	for _, ticker := range config.Tickers {
+	for _, ticker := range config.Broker.Tickers {
 		row = append(row, tgbotapi.NewInlineKeyboardButtonData(ticker, ticker))
 	}
 	return tgbotapi.NewInlineKeyboardMarkup(row)

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	configPkg "github.com/KeynihAV/exchange/pkg/exchange/config"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	"github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealRepoPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/repo"
@@ -36,7 +36,7 @@ type DealsManager struct {
 	ResultsConsumers *ResultsConsumers
 }
 
-func NewDealsManager(config *configPkg.ExchangeConfig) (*DealsManager, error) {
+func NewDealsManager(config *configPkg.Config) (*DealsManager, error) {
 	exchangeDB, err := dealRepoPkg.NewExchangeDB(nil, config)
 	if err != nil {
 		return nil, err

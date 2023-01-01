@@ -4,7 +4,7 @@ import (
 	context "context"
 	"fmt"
 
-	configPkg "github.com/KeynihAV/exchange/pkg/exchange/config"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/exchange/deal/usecase"
 )
@@ -14,7 +14,7 @@ type MyExchangeServer struct {
 	DealsManager *dealUsecasePkg.DealsManager
 }
 
-func NewExchangeServer(config *configPkg.ExchangeConfig) (*MyExchangeServer, error) {
+func NewExchangeServer(config *configPkg.Config) (*MyExchangeServer, error) {
 	dm, err := dealUsecasePkg.NewDealsManager(config)
 	if err != nil {
 		return nil, err

@@ -6,36 +6,37 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
-	configPkg "github.com/KeynihAV/exchange/pkg/exchange/config"
+	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
 	dealsFlowDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/dealsFlow/delivery"
 	"google.golang.org/grpc"
 )
 
+var appName = "exchange"
+
 func main() {
 	ctx, finish := context.WithCancel(context.Background())
 	defer finish()
 
-	filePath, err := filepath.Abs("../../assets/SPFB.RTS_190517_190517.txt")
+	exConfig := &configPkg.Config{}
+	configPkg.Read(appName, exConfig)
+	filePath, err := filepath.Abs(exConfig.Exchange.DealsFlowFile)
 	if err != nil {
 		log.Fatalf("error get abs path")
 	}
-	ExConfig := &configPkg.ExchangeConfig{
-		ListenAddr:      ":8081",
-		PGConnString:    "user=postgres password=123Qwer host=192.168.1.188 port=5432 sslmode=disable",
-		DealsFlowFile:   filePath,
-		TradingInterval: 1,
-	}
-	err = StartExchange(ctx, ExConfig)
+	exConfig.Exchange.DealsFlowFile = filePath
+
+	err = StartExchange(ctx, exConfig)
 	if err != nil {
 		log.Fatalf("Ошибка запуска: %v", err)
 	}
 }
 
-func StartExchange(ctx context.Context, config *configPkg.ExchangeConfig) error {
+func StartExchange(ctx context.Context, config *configPkg.Config) error {
 	lc := net.ListenConfig{}
-	lis, err := lc.Listen(ctx, "tcp", config.ListenAddr)
+	lis, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(config.HTTP.Port))
 	if err != nil {
 		return err
 	}
@@ -52,13 +53,13 @@ func StartExchange(ctx context.Context, config *configPkg.ExchangeConfig) error 
 		grpcServer.Stop()
 	}()
 
-	file, err := os.Open(config.DealsFlowFile)
+	file, err := os.Open(config.Exchange.DealsFlowFile)
 	if err != nil {
 		return err
 	}
 	go dealsFlowDeliveryPkg.StartFlow(file, exchangeServer.DealsManager.DealsFlowCh)
 
-	go exchangeServer.DealsManager.ProcessingTradingOperations(config.TradingInterval)
+	go exchangeServer.DealsManager.ProcessingTradingOperations(config.Exchange.TradingInterval)
 
 	err = grpcServer.Serve(lis)
 

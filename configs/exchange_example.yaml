@@ -1,0 +1,11 @@
+http: 
+  port: 8081
+db:
+  host:     localhost
+  port: 5432
+  username: postgres
+  password: 123Qwer
+  database: exchange
+exchange:
+  dealsFlowFile: "deals_history.txt"
+  tradingInterval: 1
