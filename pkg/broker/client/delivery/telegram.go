@@ -2,7 +2,6 @@ package delivery
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,7 +11,9 @@ import (
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
+	"github.com/KeynihAV/exchange/pkg/logging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"go.uber.org/zap"
 )
 
 type brokerTgBot struct {
@@ -25,9 +26,10 @@ func StartTgBot(
 	config *configPkg.Config,
 	clientsManager *clientsUsecasePkg.ClientsManager,
 	statsRepo *statsRepoPkg.StatsRepo,
-	dealsManager *dealUsecasePkg.DealsManager) error {
+	dealsManager *dealUsecasePkg.DealsManager,
+	logger *logging.Logger) error {
 
-	go listenWebhook(":" + strconv.Itoa(config.HTTP.Port))
+	go listenWebhook(":"+strconv.Itoa(config.HTTP.Port), logger)
 
 	bot, err := tgbotapi.NewBotAPI(config.Bot.Token)
 	if err != nil {
@@ -65,7 +67,11 @@ func StartTgBot(
 				messages, err = tgBot.cancelOrder(update.CallbackQuery.Data, config)
 			}
 			if err != nil {
-				fmt.Printf("error processing message: %v\n", err)
+				logger.Zap.Error("processing callback",
+					zap.String("logger", "tgbot"),
+					zap.String("msg", update.CallbackQuery.Data),
+					zap.String("err", err.Error()),
+				)
 				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
 				continue
 			}
@@ -77,7 +83,11 @@ func StartTgBot(
 			dialog := &clientPkg.Dialog{}
 			client, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, int(chatID))
 			if err != nil {
-				fmt.Printf("error creating client: %v\n", err)
+				logger.Zap.Error("creating client",
+					zap.String("logger", "tgbot"),
+					zap.String("msg", update.Message.Command()),
+					zap.String("err", err.Error()),
+				)
 				continue
 			}
 			switch cmdTxt := update.Message.Command(); {
@@ -85,22 +95,34 @@ func StartTgBot(
 				msg := tgbotapi.NewMessage(chatID, "Выберите инструмент")
 				msg.ReplyMarkup = tickersKeyboard(config)
 				if _, err = bot.Send(msg); err != nil {
-					fmt.Printf("error send msg: %v", err)
+					logger.Zap.Error("send msg",
+						zap.String("logger", "tgbot"),
+						zap.String("msg", update.Message.Command()),
+						zap.String("err", err.Error()),
+					)
 					continue
 				}
 
 				if cmdTxt == "buy" || cmdTxt == "sell" {
 					dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.Broker.ID, int32(client.ID))
 					if err != nil {
-						fmt.Printf("not create new order")
+						logger.Zap.Error("create order",
+							zap.String("logger", "tgbot"),
+							zap.String("msg", cmdTxt),
+							zap.String("err", err.Error()),
+						)
 						continue
 					}
 				}
 			case cmdTxt == "orders":
 				replyMarkup, err := tgBot.ordersKeyboard(client.ID)
 				if err != nil {
+					logger.Zap.Error("cancel order",
+						zap.String("logger", "tgbot"),
+						zap.String("msg", cmdTxt),
+						zap.String("err", err.Error()),
+					)
 					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
-					fmt.Printf("Ошибка отмены заявки: %v", err.Error())
 					continue
 				}
 				msg := tgbotapi.NewMessage(chatID, "Ваши заявки: (нажмите на заявку для отмены)")
@@ -114,7 +136,11 @@ func StartTgBot(
 			tgBot.clientsManager.ActiveDialogs[chatID] = dialog
 
 			if err != nil {
-				fmt.Printf("error processing message: %v\n", err)
+				logger.Zap.Error("processing message",
+					zap.String("logger", "tgbot"),
+					zap.String("msg", update.Message.Command()),
+					zap.String("err", err.Error()),
+				)
 				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
 				continue
 			}
@@ -144,7 +170,11 @@ func StartTgBot(
 				dialog.CurrentOrder.Volume = int32(volume)
 				orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder, config)
 				if err != nil {
-					fmt.Printf("order creation error: %v", err)
+					logger.Zap.Error("creating order",
+						zap.String("logger", "tgbot"),
+						zap.Int32("clientID", dialog.CurrentOrder.ClientID),
+						zap.String("err", err.Error()),
+					)
 					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось создать заявку: %v", err)))
 					continue
 				}
@@ -159,10 +189,12 @@ func StartTgBot(
 	return nil
 }
 
-func listenWebhook(addr string) {
+func listenWebhook(addr string, logger *logging.Logger) {
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
-		log.Fatalf("http server not started: %v", err)
+		logger.Zap.Fatal("error starting http server",
+			zap.String("logger", "tgbot"),
+			zap.String("err: ", err.Error()))
 	}
 }
 

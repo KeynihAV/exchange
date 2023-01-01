@@ -2,18 +2,19 @@ package delivery
 
 import (
 	"encoding/csv"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"time"
 
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 )
 
 var lastSecond time.Time
 
-func StartFlow(file *os.File, dealsFlowCh chan *dealPkg.Deal) error {
+func StartFlow(file *os.File, dealsFlowCh chan *dealPkg.Deal, logger *logging.Logger) error {
 
 	r := csv.NewReader(file)
 	r.Comma = ','
@@ -34,7 +35,10 @@ func StartFlow(file *os.File, dealsFlowCh chan *dealPkg.Deal) error {
 
 		currentSecond, err := time.Parse("20060102030405", rec[2]+rec[3])
 		if err != nil {
-			fmt.Printf("Error parsing csv row: %v", err)
+			logger.Zap.Error("parsing csv row",
+				zap.String("logger", "dealsFlow"),
+				zap.String("err", err.Error()),
+			)
 			continue
 		}
 		if lastSecond.IsZero() {
@@ -50,12 +54,18 @@ func StartFlow(file *os.File, dealsFlowCh chan *dealPkg.Deal) error {
 
 		vol, err := strconv.ParseInt(rec[5], 10, 32)
 		if err != nil {
-			fmt.Printf("Error parsing volume in csv row: %v", err)
+			logger.Zap.Error("parsing volume in csv row",
+				zap.String("logger", "dealsFlow"),
+				zap.String("err", err.Error()),
+			)
 			continue
 		}
 		price, err := strconv.ParseFloat(rec[4], 32)
 		if err != nil {
-			fmt.Printf("Error parsing price in csv row: %v", err)
+			logger.Zap.Error("parsing price in csv row",
+				zap.String("logger", "dealsFlow"),
+				zap.String("err", err.Error()),
+			)
 			continue
 		}
 		dealsFlowCh <- &dealPkg.Deal{

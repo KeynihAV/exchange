@@ -8,6 +8,8 @@ import (
 	"github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -69,13 +71,17 @@ func CancelOrder(exchangeID int64, config *config.Config) error {
 	return nil
 }
 
-func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) error {
+func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config, logger *logging.Logger) error {
 	grcpConn, err := grpc.Dial(
 		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
-		fmt.Printf("cant connect to grpc: %v", err)
+		logger.Zap.Error("consume deals dial exchange",
+			zap.String("logger", "grpcClient"),
+			zap.String("err", err.Error()),
+		)
+		return err
 	}
 
 	ctx := context.Background()
@@ -84,13 +90,21 @@ func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) erro
 	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
 	resultsStream, err := exchClient.Results(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.Broker.ID)})
 	if err != nil {
-		fmt.Printf("error get stats stream %v\n", err)
+		logger.Zap.Error("get deals stream",
+			zap.String("logger", "grpcClient"),
+			zap.String("err", err.Error()),
+		)
+		return err
 	}
 
 	for {
 		deal, err := resultsStream.Recv()
 		if err != nil && err != io.EOF {
-			fmt.Printf("unexpected error %v\n", err)
+			logger.Zap.Warn("unexpected error",
+				zap.String("logger", "grpcClient"),
+				zap.String("err", err.Error()),
+			)
+			continue
 		} else if err == io.EOF {
 			break
 		}
@@ -106,7 +120,11 @@ func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config) erro
 			Type:     deal.Type,
 		})
 		if err != nil {
-			fmt.Printf("Error write deal: %v\n", err)
+			logger.Zap.Warn("write deal stream",
+				zap.String("logger", "grpcClient"),
+				zap.String("err", err.Error()),
+			)
+			continue
 		}
 	}
 	return nil

@@ -9,17 +9,23 @@ import (
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	"github.com/KeynihAV/exchange/pkg/config"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) error {
+func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config, logger *logging.Logger) error {
 	grcpConn, err := grpc.Dial(
 		config.Broker.ExchangeEndpoint,
 		grpc.WithInsecure(),
 	)
 	if err != nil {
-		fmt.Printf("cant connect to grpc: %v", err)
+		logger.Zap.Error("consume stats dial exchange",
+			zap.String("logger", "grpcClient"),
+			zap.String("err", err.Error()),
+		)
+		return err
 	}
 
 	ctx := context.Background()
@@ -28,7 +34,11 @@ func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) erro
 	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
 	statsStream, err := exchClient.Statistic(metadata.NewOutgoingContext(ctx, md), &dealDeliveryPkg.BrokerID{ID: int64(config.Broker.ID)})
 	if err != nil {
-		fmt.Printf("error get stats stream %v\n", err)
+		logger.Zap.Error("get stats stream",
+			zap.String("logger", "grpcClient"),
+			zap.String("err", err.Error()),
+		)
+		return err
 	}
 
 	for {
@@ -49,7 +59,11 @@ func ConsumeStats(statsRepo *statsRepoPkg.StatsRepo, config *config.Config) erro
 			Ticker:   stat.Ticker,
 		})
 		if err != nil {
-			fmt.Printf("Error write stats: %v\n", err)
+			logger.Zap.Warn("write stats stream",
+				zap.String("logger", "grpcClient"),
+				zap.String("err", err.Error()),
+			)
+			continue
 		}
 	}
 	return nil

@@ -9,6 +9,8 @@ import (
 	"github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealRepoPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/repo"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 )
 
 type ExchangeRepo interface {
@@ -63,7 +65,7 @@ func (dm *DealsManager) CancelOrder(dealID int64) error {
 	return dm.ER.DeleteOrder(dealID)
 }
 
-func (dm *DealsManager) ProcessingTradingOperations(IntervalSeconds int) {
+func (dm *DealsManager) ProcessingTradingOperations(IntervalSeconds int, logger *logging.Logger) {
 	tiker := time.NewTicker(time.Duration(IntervalSeconds) * time.Second)
 	stats := make(map[string]*dealPkg.OHLCV, 0)
 	var ohclvID int64
@@ -83,7 +85,10 @@ func (dm *DealsManager) ProcessingTradingOperations(IntervalSeconds int) {
 
 			ordersForClose, err := dm.ER.GetOrdersForClose(deal.Ticker, deal.Price)
 			if err != nil {
-				fmt.Printf("error get orders for close: %v", err.Error())
+				logger.Zap.Error("get orders for close",
+					zap.String("logger", "ProcessingTradingOperations"),
+					zap.String("err", err.Error()),
+				)
 			}
 			if len(ordersForClose) == 0 {
 				continue
@@ -101,7 +106,10 @@ func (dm *DealsManager) ProcessingTradingOperations(IntervalSeconds int) {
 				}
 				err := dm.makeDeal(orderForClose, volumeToClose)
 				if err != nil {
-					fmt.Printf("not close deal: %v", err.Error())
+					logger.Zap.Error("not close deal",
+						zap.String("logger", "ProcessingTradingOperations"),
+						zap.String("err", err.Error()),
+					)
 				}
 				if allVolume == 0 {
 					break

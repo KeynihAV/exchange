@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 
 	clientDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/client/delivery"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
@@ -12,29 +11,40 @@ import (
 	statsDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/stats/delivery"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 )
 
 var appName = "broker"
 
 func main() {
+	logger := logging.New()
+	defer logger.Zap.Sync()
+
 	config := &configPkg.Config{}
 	err := configPkg.Read(appName, config)
 	if err != nil {
-		log.Fatalln(err)
+		logger.Zap.Fatal("read config",
+			zap.String("logger", "ZAP"),
+			zap.String("err: ", err.Error()))
 	}
 
 	db, err := initDB(config)
 	if err != nil {
-		log.Fatalln(err)
+		logger.Zap.Fatal("init db",
+			zap.String("logger", "ZAP"),
+			zap.String("err: ", err.Error()))
 	}
 
-	err = startBroker(db, config)
+	err = startBroker(db, config, logger)
 	if err != nil {
-		log.Fatalln(err)
+		logger.Zap.Fatal("start broker",
+			zap.String("logger", "ZAP"),
+			zap.String("err: ", err.Error()))
 	}
 }
 
-func startBroker(db *sql.DB, config *configPkg.Config) error {
+func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) error {
 	clientsManager, err := clientsUsecasePkg.NewClientsManager(db)
 	if err != nil {
 		return err
@@ -49,13 +59,22 @@ func startBroker(db *sql.DB, config *configPkg.Config) error {
 		return err
 	}
 
-	go statsDeliveryPkg.ConsumeStats(statsRepo, config)
+	go statsDeliveryPkg.ConsumeStats(statsRepo, config, logger)
 
-	go dealDeliveryPkg.ConsumeDeals(dealsManager, config)
+	go dealDeliveryPkg.ConsumeDeals(dealsManager, config, logger)
 
-	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo, dealsManager)
+	logger.Zap.Info("starting broker",
+		zap.String("logger", "ZAP"),
+		zap.Int("port", config.HTTP.Port),
+	)
+
+	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo, dealsManager, logger)
 
 	if err != nil {
+		logger.Zap.Error("start tgbot",
+			zap.String("logger", "tgbot"),
+			zap.String("err", err.Error()),
+		)
 		return err
 	}
 	return nil

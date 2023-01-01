@@ -2,25 +2,27 @@ package delivery
 
 import (
 	context "context"
-	"fmt"
 
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/exchange/deal/usecase"
+	"github.com/KeynihAV/exchange/pkg/logging"
+	"go.uber.org/zap"
 )
 
 type MyExchangeServer struct {
 	UnimplementedExchangeServer
 	DealsManager *dealUsecasePkg.DealsManager
+	Logger       *logging.Logger
 }
 
-func NewExchangeServer(config *configPkg.Config) (*MyExchangeServer, error) {
+func NewExchangeServer(config *configPkg.Config, logger *logging.Logger) (*MyExchangeServer, error) {
 	dm, err := dealUsecasePkg.NewDealsManager(config)
 	if err != nil {
 		return nil, err
 	}
 	dm.DealsFlowCh = make(chan *dealPkg.Deal, 10000)
-	return &MyExchangeServer{DealsManager: dm}, nil
+	return &MyExchangeServer{DealsManager: dm, Logger: logger}, nil
 }
 
 func (es *MyExchangeServer) Create(ctx context.Context, deal *Deal) (*DealID, error) {
@@ -36,6 +38,10 @@ func (es *MyExchangeServer) Create(ctx context.Context, deal *Deal) (*DealID, er
 	}
 	dealID, err := es.DealsManager.CreateOrder(newOrder)
 	if err != nil {
+		es.Logger.Zap.Error("create order",
+			zap.String("logger", "grpcServer"),
+			zap.String("err", err.Error()),
+		)
 		return nil, err
 	}
 
@@ -45,6 +51,10 @@ func (es *MyExchangeServer) Create(ctx context.Context, deal *Deal) (*DealID, er
 func (es *MyExchangeServer) Cancel(ctx context.Context, dealID *DealID) (*CancelResult, error) {
 	err := es.DealsManager.CancelOrder(dealID.ID)
 	if err != nil {
+		es.Logger.Zap.Error("cancel order",
+			zap.String("logger", "grpcServer"),
+			zap.String("err", err.Error()),
+		)
 		return nil, err
 	}
 	return &CancelResult{Success: true}, nil
@@ -79,7 +89,10 @@ func (es *MyExchangeServer) Statistic(broker *BrokerID, ess Exchange_StatisticSe
 				Ticker:   ohlcv.Ticker,
 			})
 			if err != nil {
-				fmt.Println(err)
+				es.Logger.Zap.Error("statistic",
+					zap.String("logger", "grpcServer"),
+					zap.String("err", err.Error()),
+				)
 				return err
 			}
 		}
@@ -117,12 +130,18 @@ func (es *MyExchangeServer) Results(broker *BrokerID, ers Exchange_ResultsServer
 				Type:     deal.Type,
 			})
 			if err != nil {
-				fmt.Println(err)
+				es.Logger.Zap.Error("results",
+					zap.String("logger", "grpcServer"),
+					zap.String("err", err.Error()),
+				)
 				return err
 			}
 			err = es.DealsManager.MarkDealShipped(deal.ID)
 			if err != nil {
-				fmt.Println("deal not marked as shipped: " + err.Error())
+				es.Logger.Zap.Error("mark deal shipped",
+					zap.String("logger", "grpcServer"),
+					zap.String("err", err.Error()),
+				)
 			}
 		}
 	}
