@@ -9,6 +9,7 @@ import (
 	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
+	sessUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/session/usecase"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	"github.com/KeynihAV/exchange/pkg/logging"
@@ -20,6 +21,7 @@ type brokerTgBot struct {
 	clientsManager *clientsUsecasePkg.ClientsManager
 	statsRepo      *statsRepoPkg.StatsRepo
 	dealsManager   *dealUsecasePkg.DealsManager
+	sessManager    *sessUsecasePkg.SessionsManager
 }
 
 func StartTgBot(
@@ -27,6 +29,7 @@ func StartTgBot(
 	clientsManager *clientsUsecasePkg.ClientsManager,
 	statsRepo *statsRepoPkg.StatsRepo,
 	dealsManager *dealUsecasePkg.DealsManager,
+	sessManager *sessUsecasePkg.SessionsManager,
 	logger *logging.Logger) error {
 
 	go listenWebhook(":"+strconv.Itoa(config.HTTP.Port), logger)
@@ -46,11 +49,15 @@ func StartTgBot(
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 20
 
-	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo, dealsManager: dealsManager}
+	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo, dealsManager: dealsManager, sessManager: sessManager}
 
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
 		var messages []string
+
+		if update.UpdateID == 0 {
+			continue
+		}
 
 		if update.CallbackQuery != nil {
 			chatID := update.CallbackQuery.Message.Chat.ID
@@ -81,6 +88,15 @@ func StartTgBot(
 		} else if update.Message.IsCommand() {
 			chatID := update.Message.Chat.ID
 			dialog := &clientPkg.Dialog{}
+
+			_, err := tgBot.sessManager.GetSession(chatID)
+			if err != nil {
+				registerURL := fmt.Sprintf("%v?client_id=%v&redirect_uri=%v&response_type=code&state=%v",
+					config.Bot.Auth.Url, config.Bot.Auth.App_id, config.Bot.Auth.Redirect_uri, chatID)
+				msg := tgbotapi.NewMessage(chatID, "Авторизуйтесь для продолжения: "+registerURL)
+				bot.Send(msg)
+				continue
+			}
 			client, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, int(chatID))
 			if err != nil {
 				logger.Zap.Error("creating client",

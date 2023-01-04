@@ -17,9 +17,19 @@ type Config struct {
 		Password string
 		Database string
 	}
+	Redis struct {
+		Addr string
+	}
 	Bot struct {
 		Token      string
 		WebhookURL string
+		Auth       struct {
+			App_id       string
+			App_key      string
+			Url          string
+			Redirect_uri string
+			Port         int
+		}
 	}
 	Broker struct {
 		ID               int

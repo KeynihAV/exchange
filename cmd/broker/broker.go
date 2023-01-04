@@ -8,6 +8,8 @@ import (
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/deal/delivery"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
+	sessDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/session/delivery"
+	sessUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/session/usecase"
 	statsDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/stats/delivery"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
@@ -59,6 +61,17 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 		return err
 	}
 
+	sessManager, err := sessUsecasePkg.NewSessionsManager(config)
+	if err != nil {
+		return err
+	}
+
+	sessHandler := &sessDeliveryPkg.SessionHandler{
+		SessionManager: sessManager,
+		Config:         config,
+	}
+	go sessDeliveryPkg.StartWebServer(sessHandler)
+
 	go statsDeliveryPkg.ConsumeStats(statsRepo, config, logger)
 
 	go dealDeliveryPkg.ConsumeDeals(dealsManager, config, logger)
@@ -68,7 +81,7 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 		zap.Int("port", config.HTTP.Port),
 	)
 
-	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo, dealsManager, logger)
+	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo, dealsManager, sessManager, logger)
 
 	if err != nil {
 		logger.Zap.Error("start tgbot",
