@@ -2,6 +2,7 @@ package delivery
 
 import (
 	context "context"
+	"database/sql"
 
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
@@ -16,8 +17,8 @@ type MyExchangeServer struct {
 	Logger       *logging.Logger
 }
 
-func NewExchangeServer(config *configPkg.Config, logger *logging.Logger) (*MyExchangeServer, error) {
-	dm, err := dealUsecasePkg.NewDealsManager(config)
+func NewExchangeServer(db *sql.DB, config *configPkg.Config, logger *logging.Logger) (*MyExchangeServer, error) {
+	dm, err := dealUsecasePkg.NewDealsManager(db, config)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package delivery
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,7 +31,7 @@ func (h *SessionHandler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := oConf.Exchange(ctx, qParams.Get("code"))
 	if err != nil {
-		http.Error(w, "cannot exchange "+err.Error(), 500)
+		http.Error(w, "cannot exchange "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	userID, err := strconv.ParseInt(qParams.Get("state"), 10, 64)
@@ -40,9 +39,11 @@ func (h *SessionHandler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot parse state "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.SessionManager.CreateSession(userID, token.Expiry)
-
-	fmt.Printf("Токен: %v/n", token)
+	_, err = h.SessionManager.CreateSession(userID, token.Expiry)
+	if err != nil {
+		http.Error(w, "cannot create session "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func StartWebServer(sessHandler *SessionHandler) error {

@@ -5,7 +5,7 @@ import dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 type Client struct {
 	ID      int
 	Login   string
-	TgID    int
+	TgID    int64
 	ChatID  int64
 	Balance float32
 }

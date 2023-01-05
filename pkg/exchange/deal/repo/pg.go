@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
@@ -16,69 +15,8 @@ type ExchangeDB struct {
 }
 
 func NewExchangeDB(db *sql.DB, config *configPkg.Config) (*ExchangeDB, error) {
-	db, err := initDB(db, config)
-	if err != nil {
-		return nil, err
-	}
 
-	return &ExchangeDB{
-		DB: db,
-	}, nil
-}
-
-func initDB(db *sql.DB, config *configPkg.Config) (*sql.DB, error) {
-	dbName := "exchange"
-
-	connString := fmt.Sprintf("user=%v password=%v host=%v port=%v sslmode=disable",
-		config.DB.Username, config.DB.Password, config.DB.Host, config.DB.Port)
-	var DBMS *sql.DB
-	var err error
-	if db == nil {
-		DBMS, err = sql.Open("pgx", connString)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		DBMS = db
-	}
-
-	err = DBMS.Ping()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := DBMS.Query(`SELECT 1 FROM pg_database WHERE datname = $1`, dbName)
-	if err != nil {
-		return nil, err
-	}
-	if !rows.Next() {
-		_, err = DBMS.Exec(fmt.Sprintf(`CREATE DATABASE %v`, dbName))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var exchangeDB *sql.DB
-	if db == nil {
-		err = DBMS.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		exchangeDB, err = sql.Open("pgx", fmt.Sprintf("%v dbname=%v", connString, dbName))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		exchangeDB = db
-	}
-
-	err = exchangeDB.Ping()
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = exchangeDB.Exec(
+	_, err := db.Exec(
 		`CREATE TABLE IF NOT EXISTS orders(
 			id SERIAL PRIMARY KEY,
 			brokerID int NOT NULL,
@@ -94,7 +32,7 @@ func initDB(db *sql.DB, config *configPkg.Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	_, err = exchangeDB.Exec(
+	_, err = db.Exec(
 		`CREATE TABLE IF NOT EXISTS deals(
 			id SERIAL PRIMARY KEY,
 			orderID int NOT NULL,
@@ -111,7 +49,9 @@ func initDB(db *sql.DB, config *configPkg.Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	return exchangeDB, nil
+	return &ExchangeDB{
+		DB: db,
+	}, nil
 }
 
 func (ed *ExchangeDB) AddOrder(deal *dealPkg.Order) (int64, error) {

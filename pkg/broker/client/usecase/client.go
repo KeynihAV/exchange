@@ -23,7 +23,7 @@ func NewClientsManager(db *sql.DB) (*ClientsManager, error) {
 	}, nil
 }
 
-func (cm *ClientsManager) CheckAndCreateClient(login string, ID int) (*clientPkg.Client, error) {
+func (cm *ClientsManager) CheckAndCreateClient(login string, ID int64) (*clientPkg.Client, error) {
 	var client *clientPkg.Client
 
 	clients, err := cm.CR.GetByIDs(ID)

@@ -20,8 +20,8 @@ func NewClientsRepo(db *sql.DB) (*ClientsRepo, error) {
 		`CREATE TABLE IF NOT EXISTS clients(
 			id SERIAL PRIMARY KEY,			
 			login varchar(200) NOT NULL,
-			tgID int NOT NULL,
-			chatID int NOT NULL,
+			tgID bigint NOT NULL,
+			chatID bigint NOT NULL,
 			balance float8 NOT NULL);
 		CREATE UNIQUE INDEX IF NOT EXISTS tgID_idx ON clients (tgID);`)
 	if err != nil {
@@ -44,7 +44,7 @@ func NewClientsRepo(db *sql.DB) (*ClientsRepo, error) {
 	return &ClientsRepo{DB: db}, nil
 }
 
-func (cr *ClientsRepo) GetByIDs(ids ...int) (map[int]*clientPkg.Client, error) {
+func (cr *ClientsRepo) GetByIDs(ids ...int64) (map[int64]*clientPkg.Client, error) {
 	params := []string{}
 	values := []interface{}{}
 	i := 1
@@ -60,7 +60,7 @@ func (cr *ClientsRepo) GetByIDs(ids ...int) (map[int]*clientPkg.Client, error) {
 	}
 	defer result.Close()
 
-	clients := make(map[int]*clientPkg.Client)
+	clients := make(map[int64]*clientPkg.Client)
 	for result.Next() {
 		client := &clientPkg.Client{}
 		err = result.Scan(&client.ID, &client.TgID, &client.Login, &client.ChatID, &client.Balance)

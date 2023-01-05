@@ -53,156 +53,159 @@ func StartTgBot(
 
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
-		var messages []string
+		var messages []tgbotapi.MessageConfig
+		var chatID int64
+		var inputMsg, processing string
 
 		if update.UpdateID == 0 {
 			continue
 		}
 
 		if update.CallbackQuery != nil {
-			chatID := update.CallbackQuery.Message.Chat.ID
-			dialog := tgBot.clientsManager.ActiveDialogs[chatID]
-			switch cmdTxt := dialog.CurrentCommand; {
-			case cmdTxt == "stats":
-				messages, err = tgBot.getStats(update.CallbackQuery.Data)
-				dialog.CurrentCommand = ""
-			case cmdTxt == "buy" || cmdTxt == "sell":
-				dialog.CurrentOrder.Ticker = update.CallbackQuery.Data
-				dialog.LastMsg = "Укажите цену"
-				messages = append(messages, dialog.LastMsg)
-			case cmdTxt == "orders":
-				messages, err = tgBot.cancelOrder(update.CallbackQuery.Data, config)
-			}
-			if err != nil {
-				logger.Zap.Error("processing callback",
-					zap.String("logger", "tgbot"),
-					zap.String("msg", update.CallbackQuery.Data),
-					zap.String("err", err.Error()),
-				)
-				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
-				continue
-			}
-			for _, msg := range messages {
-				bot.Send(tgbotapi.NewMessage(chatID, msg))
-			}
+			chatID = update.CallbackQuery.Message.Chat.ID
+			inputMsg = update.CallbackQuery.Data
+			processing = "callback"
+
+			messages, err = tgBot.processingCallback(chatID, inputMsg, config)
+
 		} else if update.Message.IsCommand() {
-			chatID := update.Message.Chat.ID
-			dialog := &clientPkg.Dialog{}
+			chatID = update.Message.Chat.ID
+			inputMsg = update.Message.Command()
+			processing = "command"
+			messages, err = tgBot.processingCommand(chatID, update.Message.From.UserName, inputMsg, config)
 
-			_, err := tgBot.sessManager.GetSession(chatID)
-			if err != nil {
-				registerURL := fmt.Sprintf("%v?client_id=%v&redirect_uri=%v&response_type=code&state=%v",
-					config.Bot.Auth.Url, config.Bot.Auth.App_id, config.Bot.Auth.Redirect_uri, chatID)
-				msg := tgbotapi.NewMessage(chatID, "Авторизуйтесь для продолжения: "+registerURL)
-				bot.Send(msg)
-				continue
-			}
-			client, err := clientsManager.CheckAndCreateClient(update.Message.From.UserName, int(chatID))
-			if err != nil {
-				logger.Zap.Error("creating client",
-					zap.String("logger", "tgbot"),
-					zap.String("msg", update.Message.Command()),
-					zap.String("err", err.Error()),
-				)
-				continue
-			}
-			switch cmdTxt := update.Message.Command(); {
-			case cmdTxt == "stats" || cmdTxt == "buy" || cmdTxt == "sell":
-				msg := tgbotapi.NewMessage(chatID, "Выберите инструмент")
-				msg.ReplyMarkup = tickersKeyboard(config)
-				if _, err = bot.Send(msg); err != nil {
-					logger.Zap.Error("send msg",
-						zap.String("logger", "tgbot"),
-						zap.String("msg", update.Message.Command()),
-						zap.String("err", err.Error()),
-					)
-					continue
-				}
-
-				if cmdTxt == "buy" || cmdTxt == "sell" {
-					dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.Broker.ID, int32(client.ID))
-					if err != nil {
-						logger.Zap.Error("create order",
-							zap.String("logger", "tgbot"),
-							zap.String("msg", cmdTxt),
-							zap.String("err", err.Error()),
-						)
-						continue
-					}
-				}
-			case cmdTxt == "orders":
-				replyMarkup, err := tgBot.ordersKeyboard(client.ID)
-				if err != nil {
-					logger.Zap.Error("cancel order",
-						zap.String("logger", "tgbot"),
-						zap.String("msg", cmdTxt),
-						zap.String("err", err.Error()),
-					)
-					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
-					continue
-				}
-				msg := tgbotapi.NewMessage(chatID, "Ваши заявки: (нажмите на заявку для отмены)")
-				msg.ReplyMarkup = replyMarkup
-				bot.Send(msg)
-			case cmdTxt == "balance":
-				messages, err = tgBot.getBalance(client)
-			}
-
-			dialog.CurrentCommand = update.Message.Command()
-			tgBot.clientsManager.ActiveDialogs[chatID] = dialog
-
-			if err != nil {
-				logger.Zap.Error("processing message",
-					zap.String("logger", "tgbot"),
-					zap.String("msg", update.Message.Command()),
-					zap.String("err", err.Error()),
-				)
-				bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
-				continue
-			}
-			for _, msg := range messages {
-				bot.Send(tgbotapi.NewMessage(chatID, msg))
-			}
 		} else {
-			chatID := update.Message.Chat.ID
-			dialog := tgBot.clientsManager.ActiveDialogs[chatID]
-			switch dialog.LastMsg {
-			case "Укажите цену":
-				price, err := strconv.ParseFloat(update.Message.Text, 32)
-				if err != nil {
-					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не правильно введена цена: %v\n Попробуйте еще", err.Error())))
-					continue
-				}
+			chatID = update.Message.Chat.ID
+			inputMsg = update.Message.Text
+			processing = "message"
 
-				dialog.CurrentOrder.Price = float32(price)
-				dialog.LastMsg = "Укажите объем"
-				messages = append(messages, dialog.LastMsg)
-			case "Укажите объем":
-				volume, err := strconv.ParseInt(update.Message.Text, 10, 32)
-				if err != nil {
-					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не правильно введен объем: %v\n Попробуйте еще", err.Error())))
-					continue
-				}
-				dialog.CurrentOrder.Volume = int32(volume)
-				orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder, config)
-				if err != nil {
-					logger.Zap.Error("creating order",
-						zap.String("logger", "tgbot"),
-						zap.Int32("clientID", dialog.CurrentOrder.ClientID),
-						zap.String("err", err.Error()),
-					)
-					bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось создать заявку: %v", err)))
-					continue
-				}
-				messages = append(messages, fmt.Sprintf("Создана заявка с номером %v", orderID))
-			}
-			for _, msg := range messages {
-				bot.Send(tgbotapi.NewMessage(chatID, msg))
-			}
+			messages, err = tgBot.processingMessages(chatID, inputMsg, config)
+		}
+
+		if err != nil {
+			logger.Zap.Error("processing "+processing,
+				zap.String("logger", "tgbot"),
+				zap.String("msg", inputMsg),
+				zap.String("err", err.Error()),
+			)
+			bot.Send(tgbotapi.NewMessage(chatID, err.Error()))
+		}
+		for _, msg := range messages {
+			bot.Send(msg)
 		}
 	}
 
 	return nil
+}
+
+func (tgBot *brokerTgBot) processingCommand(chatID int64, userName string, inputMsg string, config *configPkg.Config) ([]tgbotapi.MessageConfig, error) {
+	dialog := &clientPkg.Dialog{}
+	var messages []tgbotapi.MessageConfig
+
+	_, err := tgBot.sessManager.GetSession(chatID)
+	if err != nil {
+		registerURL := fmt.Sprintf("%v?client_id=%v&redirect_uri=%v&response_type=code&state=%v",
+			config.Bot.Auth.Url, config.Bot.Auth.App_id, config.Bot.Auth.Redirect_uri, chatID)
+		messages = append(messages, tgbotapi.NewMessage(chatID, "Авторизуйтесь для продолжения: "+registerURL))
+		return messages, nil
+	}
+	client, err := tgBot.clientsManager.CheckAndCreateClient(userName, chatID)
+	if err != nil {
+		return messages, fmt.Errorf("creating client %v", err.Error())
+	}
+
+	switch cmdTxt := inputMsg; {
+	case cmdTxt == "stats" || cmdTxt == "buy" || cmdTxt == "sell":
+		msg := tgbotapi.NewMessage(chatID, "Выберите инструмент")
+		msg.ReplyMarkup = tickersKeyboard(config)
+		messages = append(messages, msg)
+		if cmdTxt == "buy" || cmdTxt == "sell" {
+			dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.Broker.ID, int32(client.ID))
+			if err != nil {
+				return messages, fmt.Errorf("create order %v", err.Error())
+			}
+		}
+	case cmdTxt == "orders":
+		replyMarkup, err := tgBot.ordersKeyboard(client.ID)
+		if err != nil {
+			messages = append(messages, tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
+			return messages, fmt.Errorf("cancel order %v", err.Error())
+		}
+
+		msg := tgbotapi.NewMessage(chatID, "Ваши заявки: (нажмите на заявку для отмены)")
+		msg.ReplyMarkup = replyMarkup
+		messages = append(messages, msg)
+	case cmdTxt == "balance":
+		msgs, err := tgBot.getBalance(client)
+		if err != nil {
+			return messages, err
+		}
+		for _, msg := range msgs {
+			messages = append(messages, tgbotapi.NewMessage(chatID, msg))
+		}
+	}
+
+	dialog.CurrentCommand = inputMsg
+	tgBot.clientsManager.ActiveDialogs[chatID] = dialog
+
+	return messages, nil
+}
+
+func (tgBot *brokerTgBot) processingMessages(chatID int64, inputMsg string, config *configPkg.Config) ([]tgbotapi.MessageConfig, error) {
+	dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+	var messages []tgbotapi.MessageConfig
+	switch dialog.LastMsg {
+	case "Укажите цену":
+		price, err := strconv.ParseFloat(inputMsg, 32)
+		if err != nil {
+			return messages, fmt.Errorf("не правильно введена цена: %v\n Попробуйте еще", err.Error())
+		}
+		dialog.CurrentOrder.Price = float32(price)
+		dialog.LastMsg = "Укажите объем"
+		messages = append(messages, tgbotapi.NewMessage(chatID, dialog.LastMsg))
+	case "Укажите объем":
+		volume, err := strconv.ParseInt(inputMsg, 10, 32)
+		if err != nil {
+			return messages, fmt.Errorf("не правильно введен объем: %v\n Попробуйте еще", err.Error())
+		}
+		dialog.CurrentOrder.Volume = int32(volume)
+		orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder, config)
+		if err != nil {
+			return messages, fmt.Errorf("не удалось создать заявку: %vе", err.Error())
+		}
+		messages = append(messages, tgbotapi.NewMessage(chatID, fmt.Sprintf("Создана заявка с номером %v", orderID)))
+	}
+	return messages, nil
+}
+
+func (tgBot *brokerTgBot) processingCallback(chatID int64, inputMsg string, config *configPkg.Config) ([]tgbotapi.MessageConfig, error) {
+	var messages []tgbotapi.MessageConfig
+	var err error
+	dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+	switch cmdTxt := dialog.CurrentCommand; {
+	case cmdTxt == "stats":
+		msgs, err := tgBot.getStats(inputMsg)
+		if err != nil {
+			return messages, err
+		}
+		for _, msg := range msgs {
+			messages = append(messages, tgbotapi.NewMessage(chatID, msg))
+		}
+		dialog.CurrentCommand = ""
+	case cmdTxt == "buy" || cmdTxt == "sell":
+		dialog.CurrentOrder.Ticker = inputMsg
+		dialog.LastMsg = "Укажите цену"
+		messages = append(messages, tgbotapi.NewMessage(chatID, dialog.LastMsg))
+	case cmdTxt == "orders":
+		msgs, err := tgBot.cancelOrder(inputMsg, config)
+		if err != nil {
+			return messages, err
+		}
+		for _, msg := range msgs {
+			messages = append(messages, tgbotapi.NewMessage(chatID, msg))
+		}
+	}
+	return messages, err
 }
 
 func listenWebhook(addr string, logger *logging.Logger) {

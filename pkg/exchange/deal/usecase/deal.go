@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
@@ -38,8 +39,8 @@ type DealsManager struct {
 	ResultsConsumers *ResultsConsumers
 }
 
-func NewDealsManager(config *configPkg.Config) (*DealsManager, error) {
-	exchangeDB, err := dealRepoPkg.NewExchangeDB(nil, config)
+func NewDealsManager(db *sql.DB, config *configPkg.Config) (*DealsManager, error) {
+	exchangeDB, err := dealRepoPkg.NewExchangeDB(db, config)
 	if err != nil {
 		return nil, err
 	}
