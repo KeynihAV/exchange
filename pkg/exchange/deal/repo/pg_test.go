@@ -92,7 +92,7 @@ func TestExchangeDB_DeleteOrder(t *testing.T) {
 		wantErr bool
 		mockF   func(sqlmock.Sqlmock)
 	}{
-		{name: "Ошибка insert",
+		{name: "Ошибка delete",
 			ed:      &ExchangeDB{DB: db},
 			args:    args{dealID: 1},
 			wantErr: true,
@@ -100,7 +100,7 @@ func TestExchangeDB_DeleteOrder(t *testing.T) {
 				s.ExpectExec(`DELETE FROM orders WHERE`).WillReturnError(fmt.Errorf("delete error"))
 			},
 		},
-		{name: "Успешный insert",
+		{name: "Успешный delete",
 			ed:      &ExchangeDB{DB: db},
 			args:    args{dealID: 1},
 			wantErr: false,
