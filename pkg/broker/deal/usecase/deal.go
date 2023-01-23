@@ -3,35 +3,50 @@ package usecase
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/deal/delivery"
 	dealRepoPkg "github.com/KeynihAV/exchange/pkg/broker/deal/repo"
 	"github.com/KeynihAV/exchange/pkg/config"
 	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
+	exDealDeliveryPkg "github.com/KeynihAV/exchange/pkg/exchange/deal/delivery"
+	"google.golang.org/grpc"
 )
 
 type DealsManager struct {
-	DR *dealRepoPkg.DealRepo
+	DR       *dealRepoPkg.DealRepo
+	ExClient exDealDeliveryPkg.ExchangeClient
 }
 
-func NewDealsManager(db *sql.DB) (*DealsManager, error) {
+func NewDealsManager(db *sql.DB, config *config.Config) (*DealsManager, error) {
 	dr, err := dealRepoPkg.NewDealRepo(db)
 	if err != nil {
 		return nil, err
 	}
 
-	return &DealsManager{DR: dr}, nil
+	grcpConn, err := grpc.Dial(
+		config.Broker.ExchangeEndpoint,
+		grpc.WithInsecure(),
+	)
+	if err != nil {
+		fmt.Printf("cant connect to grpc: %v", err)
+	}
+
+	exchClient := exDealDeliveryPkg.NewExchangeClient(grcpConn)
+
+	return &DealsManager{DR: dr, ExClient: exchClient}, nil
 }
 
 func (dm *DealsManager) CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
 	order.Time = int32(time.Now().Unix())
+	order.BrokerID = int32(config.Broker.ID)
 	id, err := dm.DR.AddOrder(order)
 	if err != nil {
 		return 0, err
 	}
 
-	exchID, err := dealDeliveryPkg.CreateOrder(order, config)
+	exchID, err := dealDeliveryPkg.CreateOrder(order, dm.ExClient)
 	if err != nil {
 		return 0, err
 	}
@@ -44,21 +59,13 @@ func (dm *DealsManager) CreateOrder(order *dealPkg.Order, config *config.Config)
 	return id, nil
 }
 
-func (dm *DealsManager) NewOrder(orderType string, brokerID int, clientID int32) (*dealPkg.Order, error) {
-	return &dealPkg.Order{
-		Type:     orderType,
-		BrokerID: int32(brokerID),
-		ClientID: clientID,
-	}, nil
-}
-
 func (dm *DealsManager) CancelOrder(id int64, config *config.Config) error {
 	exchangeID, err := dm.DR.GetExchangeID(id)
 	if err != nil {
 		return err
 	}
 
-	err = dealDeliveryPkg.CancelOrder(exchangeID, config)
+	err = dealDeliveryPkg.CancelOrder(exchangeID, dm.ExClient)
 	if err != nil {
 		return err
 	}
@@ -72,9 +79,8 @@ func (dm *DealsManager) CancelOrder(id int64, config *config.Config) error {
 	if err != nil {
 		tx.Rollback()
 		return err
-	} else {
-		tx.Commit()
 	}
+	tx.Commit()
 
 	return nil //вообще тут не очень, по идее нужен outbox pattern, чтобы сообщение писалось в бд и доставлялось отдельным потоком до победного
 }
@@ -110,13 +116,17 @@ func (dm *DealsManager) DealProcessing(deal *dealPkg.Deal) error {
 
 	//Удалить\обновить заявку
 	if deal.Partial {
-		closedVolume, err := dm.DR.OrderClosedVolume(deal.OrderID, tx)
+		var closedVolume int32
+		closedVolume, err = dm.DR.OrderClosedVolume(deal.OrderID, tx)
 		if err != nil {
 			return err
 		}
-		dm.DR.UpdateOrderClosedVolume(orderID, closedVolume, tx)
+		err = dm.DR.UpdateOrderClosedVolume(orderID, closedVolume, tx)
 	} else {
-		dm.DR.DeleteOrder(orderID, tx)
+		err = dm.DR.DeleteOrder(orderID, tx)
+	}
+	if err != nil {
+		return err
 	}
 
 	//Обновить портфель

@@ -28,8 +28,8 @@ type Config struct {
 			App_key      string
 			Url          string
 			Redirect_uri string
-			Port         int
 		}
+		BrokerEndpoint string
 	}
 	Broker struct {
 		ID               int

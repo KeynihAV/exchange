@@ -18,16 +18,7 @@ type DealsManagerInterface interface {
 	DealProcessing(deal *dealPkg.Deal) error
 }
 
-func CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
-	grcpConn, err := grpc.Dial(
-		config.Broker.ExchangeEndpoint,
-		grpc.WithInsecure(),
-	)
-	if err != nil {
-		fmt.Printf("cant connect to grpc: %v", err)
-	}
-	ctx := context.Background()
-	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
+func CreateOrder(order *dealPkg.Order, exchClient dealDeliveryPkg.ExchangeClient) (int64, error) {
 
 	deal := &dealDeliveryPkg.Deal{
 		BrokerID: order.BrokerID,
@@ -38,6 +29,7 @@ func CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
 		Type:     order.Type,
 	}
 
+	ctx := context.Background()
 	dealResult, err := exchClient.Create(ctx, deal)
 	if err != nil {
 		return 0, err
@@ -46,19 +38,10 @@ func CreateOrder(order *dealPkg.Order, config *config.Config) (int64, error) {
 	return dealResult.ID, nil
 }
 
-func CancelOrder(exchangeID int64, config *config.Config) error {
-	grcpConn, err := grpc.Dial(
-		config.Broker.ExchangeEndpoint,
-		grpc.WithInsecure(),
-	)
-	if err != nil {
-		fmt.Printf("cant connect to grpc: %v", err)
-	}
+func CancelOrder(exchangeID int64, exchClient dealDeliveryPkg.ExchangeClient) error {
 	ctx := context.Background()
-	exchClient := dealDeliveryPkg.NewExchangeClient(grcpConn)
 
 	dealID := &dealDeliveryPkg.DealID{ID: exchangeID}
-
 	cancelResult, err := exchClient.Cancel(ctx, dealID)
 	if err != nil {
 		return err
@@ -77,7 +60,7 @@ func ConsumeDeals(dmInterface DealsManagerInterface, config *config.Config, logg
 		grpc.WithInsecure(),
 	)
 	if err != nil {
-		logger.Zap.Error("consume deals dial exchange",
+		logger.Zap.Error("consume stats dial exchange",
 			zap.String("logger", "grpcClient"),
 			zap.String("err", err.Error()),
 		)

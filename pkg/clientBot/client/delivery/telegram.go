@@ -7,29 +7,28 @@ import (
 	"time"
 
 	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
-	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
-	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
-	sessUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/session/usecase"
-	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
+	clientRepoPkg "github.com/KeynihAV/exchange/pkg/clientBot/client/repo"
+	dealRepoPkg "github.com/KeynihAV/exchange/pkg/clientBot/deal/repo"
+	statsRepoPkg "github.com/KeynihAV/exchange/pkg/clientBot/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
+	dealPkg "github.com/KeynihAV/exchange/pkg/exchange/deal"
 	"github.com/KeynihAV/exchange/pkg/logging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"go.uber.org/zap"
 )
 
 type brokerTgBot struct {
-	clientsManager *clientsUsecasePkg.ClientsManager
-	statsRepo      *statsRepoPkg.StatsRepo
-	dealsManager   *dealUsecasePkg.DealsManager
-	sessManager    *sessUsecasePkg.SessionsManager
+	clientsRepo   *clientRepoPkg.ClientsRepo
+	dealsRepo     *dealRepoPkg.DealsRepo
+	statsRepo     *statsRepoPkg.StatsRepo
+	ActiveDialogs map[int64]*clientPkg.Dialog
 }
 
 func StartTgBot(
 	config *configPkg.Config,
-	clientsManager *clientsUsecasePkg.ClientsManager,
+	clientsRepo *clientRepoPkg.ClientsRepo,
+	dealsRepo *dealRepoPkg.DealsRepo,
 	statsRepo *statsRepoPkg.StatsRepo,
-	dealsManager *dealUsecasePkg.DealsManager,
-	sessManager *sessUsecasePkg.SessionsManager,
 	logger *logging.Logger) error {
 
 	go listenWebhook(":"+strconv.Itoa(config.HTTP.Port), logger)
@@ -49,7 +48,7 @@ func StartTgBot(
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 20
 
-	tgBot := &brokerTgBot{clientsManager: clientsManager, statsRepo: statsRepo, dealsManager: dealsManager, sessManager: sessManager}
+	tgBot := &brokerTgBot{clientsRepo: clientsRepo, statsRepo: statsRepo, dealsRepo: dealsRepo, ActiveDialogs: make(map[int64]*clientPkg.Dialog)}
 
 	chUpdates := bot.ListenForWebhook("/")
 	for update := range chUpdates {
@@ -102,16 +101,15 @@ func (tgBot *brokerTgBot) processingCommand(chatID int64, userName string, input
 	dialog := &clientPkg.Dialog{}
 	var messages []tgbotapi.MessageConfig
 
-	_, err := tgBot.sessManager.GetSession(chatID)
+	client, err := tgBot.clientsRepo.CheckAuth(userName, chatID)
 	if err != nil {
+		return messages, err
+	}
+	if err == nil && client == nil {
 		registerURL := fmt.Sprintf("%v?client_id=%v&redirect_uri=%v&response_type=code&state=%v",
 			config.Bot.Auth.Url, config.Bot.Auth.App_id, config.Bot.Auth.Redirect_uri, chatID)
 		messages = append(messages, tgbotapi.NewMessage(chatID, "Авторизуйтесь для продолжения: "+registerURL))
 		return messages, nil
-	}
-	client, err := tgBot.clientsManager.CheckAndCreateClient(userName, chatID)
-	if err != nil {
-		return messages, fmt.Errorf("creating client %v", err.Error())
 	}
 
 	switch cmdTxt := inputMsg; {
@@ -120,15 +118,16 @@ func (tgBot *brokerTgBot) processingCommand(chatID int64, userName string, input
 		msg.ReplyMarkup = tickersKeyboard(config)
 		messages = append(messages, msg)
 		if cmdTxt == "buy" || cmdTxt == "sell" {
-			dialog.CurrentOrder, err = tgBot.dealsManager.NewOrder(cmdTxt, config.Broker.ID, int32(client.ID))
-			if err != nil {
-				return messages, fmt.Errorf("create order %v", err.Error())
+			dialog.CurrentOrder = &dealPkg.Order{
+				Type:     cmdTxt,
+				BrokerID: int32(config.Broker.ID),
+				ClientID: int32(client.ID),
 			}
 		}
 	case cmdTxt == "orders":
 		replyMarkup, err := tgBot.ordersKeyboard(client.ID)
 		if err != nil {
-			messages = append(messages, tgbotapi.NewMessage(chatID, "Не удалось отменить заявку"))
+			messages = append(messages, tgbotapi.NewMessage(chatID, "Не удалось получить список заявок"))
 			return messages, fmt.Errorf("cancel order %v", err.Error())
 		}
 
@@ -146,13 +145,13 @@ func (tgBot *brokerTgBot) processingCommand(chatID int64, userName string, input
 	}
 
 	dialog.CurrentCommand = inputMsg
-	tgBot.clientsManager.ActiveDialogs[chatID] = dialog
+	tgBot.ActiveDialogs[chatID] = dialog
 
 	return messages, nil
 }
 
 func (tgBot *brokerTgBot) processingMessages(chatID int64, inputMsg string, config *configPkg.Config) ([]tgbotapi.MessageConfig, error) {
-	dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+	dialog := tgBot.ActiveDialogs[chatID]
 	var messages []tgbotapi.MessageConfig
 	switch dialog.LastMsg {
 	case "Укажите цену":
@@ -169,7 +168,7 @@ func (tgBot *brokerTgBot) processingMessages(chatID int64, inputMsg string, conf
 			return messages, fmt.Errorf("не правильно введен объем: %v\n Попробуйте еще", err.Error())
 		}
 		dialog.CurrentOrder.Volume = int32(volume)
-		orderID, err := tgBot.dealsManager.CreateOrder(dialog.CurrentOrder, config)
+		orderID, err := tgBot.dealsRepo.CreateOrder(dialog.CurrentOrder)
 		if err != nil {
 			return messages, fmt.Errorf("не удалось создать заявку: %vе", err.Error())
 		}
@@ -181,7 +180,7 @@ func (tgBot *brokerTgBot) processingMessages(chatID int64, inputMsg string, conf
 func (tgBot *brokerTgBot) processingCallback(chatID int64, inputMsg string, config *configPkg.Config) ([]tgbotapi.MessageConfig, error) {
 	var messages []tgbotapi.MessageConfig
 	var err error
-	dialog := tgBot.clientsManager.ActiveDialogs[chatID]
+	dialog := tgBot.ActiveDialogs[chatID]
 	switch cmdTxt := dialog.CurrentCommand; {
 	case cmdTxt == "stats":
 		msgs, err := tgBot.getStats(inputMsg)
@@ -239,7 +238,7 @@ func (tgBot *brokerTgBot) cancelOrder(callbackData string, config *configPkg.Con
 		return nil, fmt.Errorf("parseInt in cancel order %v", err)
 	}
 
-	err = tgBot.dealsManager.CancelOrder(orderID, config)
+	err = tgBot.dealsRepo.CancelOrder(orderID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel order %v", err)
 	}
@@ -256,7 +255,7 @@ func tickersKeyboard(config *configPkg.Config) tgbotapi.InlineKeyboardMarkup {
 }
 
 func (tgBot *brokerTgBot) ordersKeyboard(clientID int) (tgbotapi.InlineKeyboardMarkup, error) {
-	orders, err := tgBot.dealsManager.OrdersByClient(clientID)
+	orders, err := tgBot.dealsRepo.OrdersByClient(clientID)
 	if err != nil {
 		return tgbotapi.InlineKeyboardMarkup{}, err
 	}
@@ -280,7 +279,7 @@ func (tgBot *brokerTgBot) ordersKeyboard(clientID int) (tgbotapi.InlineKeyboardM
 }
 
 func (tgBot *brokerTgBot) getBalance(client *clientPkg.Client) ([]string, error) {
-	positions, err := tgBot.clientsManager.GetBalance(client)
+	positions, err := tgBot.clientsRepo.GetBalance(client)
 	if err != nil {
 		return nil, fmt.Errorf("error get balance: %v", err)
 	}

@@ -8,8 +8,7 @@ import (
 )
 
 type ClientsManager struct {
-	CR            *clientRepoPkg.ClientsRepo
-	ActiveDialogs map[int64]*clientPkg.Dialog
+	CR *clientRepoPkg.ClientsRepo
 }
 
 func NewClientsManager(db *sql.DB) (*ClientsManager, error) {
@@ -18,8 +17,7 @@ func NewClientsManager(db *sql.DB) (*ClientsManager, error) {
 		return nil, err
 	}
 	return &ClientsManager{
-		CR:            cr,
-		ActiveDialogs: make(map[int64]*clientPkg.Dialog),
+		CR: cr,
 	}, nil
 }
 

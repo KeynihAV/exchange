@@ -3,21 +3,28 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net/http"
+	"strconv"
 
 	clientDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/client/delivery"
 	clientsUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	dealDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/deal/delivery"
 	dealUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/deal/usecase"
+	metricsPkg "github.com/KeynihAV/exchange/pkg/broker/metrics"
 	sessDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/session/delivery"
 	sessUsecasePkg "github.com/KeynihAV/exchange/pkg/broker/session/usecase"
 	statsDeliveryPkg "github.com/KeynihAV/exchange/pkg/broker/stats/delivery"
 	statsRepoPkg "github.com/KeynihAV/exchange/pkg/broker/stats/repo"
 	configPkg "github.com/KeynihAV/exchange/pkg/config"
 	"github.com/KeynihAV/exchange/pkg/logging"
+	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
-var appName = "broker"
+var (
+	appName = "broker"
+)
 
 func main() {
 	logger := logging.New()
@@ -56,7 +63,7 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 		return err
 	}
 
-	dealsManager, err := dealUsecasePkg.NewDealsManager(db)
+	dealsManager, err := dealUsecasePkg.NewDealsManager(db, config)
 	if err != nil {
 		return err
 	}
@@ -68,9 +75,9 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 
 	sessHandler := &sessDeliveryPkg.SessionHandler{
 		SessionManager: sessManager,
+		ClientsManager: clientsManager,
 		Config:         config,
 	}
-	go sessDeliveryPkg.StartWebServer(sessHandler)
 
 	go statsDeliveryPkg.ConsumeStats(statsRepo, config, logger)
 
@@ -81,13 +88,27 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 		zap.Int("port", config.HTTP.Port),
 	)
 
-	err = clientDeliveryPkg.StartTgBot(config, clientsManager, statsRepo, dealsManager, sessManager, logger)
+	clientsHandler := clientDeliveryPkg.ClientsHandler{ClientsManager: clientsManager}
+	statsHandler := statsDeliveryPkg.StatsHandler{StatsRepo: statsRepo}
+	dealsHandler := dealDeliveryPkg.DealsHandler{DealsManager: dealsManager, Config: config}
 
+	r := mux.NewRouter()
+	r.HandleFunc("/api/v1/stats/{ticker}", statsHandler.GeStatsByTicker).Methods("GET")
+	r.HandleFunc("/api/v1/deal", dealsHandler.CreateOrder).Methods("POST")
+	r.HandleFunc("/api/v1/cancel/{order}", dealsHandler.CancelOrder).Methods("DELETE")
+	r.HandleFunc("/api/v1/orders/byClient/{client}", dealsHandler.OrdersByClient).Methods("GET")
+	r.HandleFunc("/api/v1/status", clientsHandler.GetBalance).Methods("GET")
+	r.HandleFunc("/api/v1/checkAuth", sessHandler.CheckAuth).Methods("POST")
+	r.HandleFunc("/api/v1/user/login_oauth", sessHandler.AuthCallback).Methods("GET")
+	r.HandleFunc("/metrics", promhttp.Handler().ServeHTTP)
+
+	mux := logger.WriteAccessLog(r)
+	mux = logger.SetupLogger(mux)
+	mux = logger.AddReqID(mux)
+	mux = metricsPkg.TimeTrackingMiddleware(mux)
+
+	err = http.ListenAndServe(":"+strconv.Itoa(config.HTTP.Port), mux)
 	if err != nil {
-		logger.Zap.Error("start tgbot",
-			zap.String("logger", "tgbot"),
-			zap.String("err", err.Error()),
-		)
 		return err
 	}
 	return nil

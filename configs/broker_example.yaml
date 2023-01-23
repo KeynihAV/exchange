@@ -8,14 +8,6 @@ db:
   database: broker
 redis:
   addr: "redis://user:@localhost:6379/0"
-bot:
-  token: "123"
-  webhookURL: "http://localhost"
-  auth:
-    app_id: "123"
-    app_key: "123"
-    url: "https://api.vk.com/method/users.get?fields=photo_50&access_token=%s&v=5.52" 
-    api_url: ""
 broker:
   ID: 1
   tickers:
