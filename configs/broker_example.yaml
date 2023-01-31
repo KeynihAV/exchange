@@ -1,0 +1,15 @@
+http: 
+  port: 8082
+db:
+  host:     localhost
+  port: 5432
+  username: postgres
+  password: 123Qwer
+  database: broker
+redis:
+  addr: "redis://user:@localhost:6379/0"
+broker:
+  ID: 1
+  tickers:
+    - SPFB.RTS
+  exchangeEndpoint: ":8081"

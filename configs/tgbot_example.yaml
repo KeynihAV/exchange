@@ -1,0 +1,11 @@
+http: 
+  port: 8083
+bot:
+  token: "123"
+  webhookURL: "https://localshost"
+  auth:
+    app_id: "123456"
+    app_key: "654321"
+    url: "https://oauth.vk.com/authorize"
+    redirect_uri: "https://localhost/api/v1/user/login_oauth"
+  brokerEndpoint: "http://localhost:8082"
