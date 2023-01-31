@@ -2,10 +2,11 @@ package delivery
 
 import (
 	"net/http"
+	"strconv"
 
-	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
 	clientUsecasekg "github.com/KeynihAV/exchange/pkg/broker/client/usecase"
 	"github.com/KeynihAV/exchange/pkg/common"
+	"github.com/gorilla/mux"
 )
 
 type ClientsHandler struct {
@@ -13,13 +14,10 @@ type ClientsHandler struct {
 }
 
 func (h *ClientsHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
-	inputClient := &clientPkg.Client{}
-	ok := common.GetStructFromRequest(inputClient, r, w)
-	if !ok {
-		return
-	}
+	vars := mux.Vars(r)
+	clientID, err := strconv.Atoi(vars["client"])
 
-	positions, err := h.ClientsManager.GetBalance(inputClient)
+	positions, err := h.ClientsManager.GetBalance(clientID)
 	if err != nil {
 		common.RespJSONError(w, http.StatusInternalServerError, err, err.Error(), r.Context())
 		return

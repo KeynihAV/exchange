@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	clientPkg "github.com/KeynihAV/exchange/pkg/broker/client"
@@ -66,14 +67,9 @@ func (cr *ClientsRepo) CheckAuth(login string, userID int64) (*clientPkg.Client,
 }
 
 func (cr *ClientsRepo) GetBalance(client *clientPkg.Client) ([]*clientPkg.Position, error) {
-	method := "/api/v1/status"
+	method := "/api/v1/status/"
 
-	reqData, err := json.Marshal(client)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, cr.config.Bot.BrokerEndpoint+method, bytes.NewBuffer(reqData))
+	req, err := http.NewRequest(http.MethodGet, cr.config.Bot.BrokerEndpoint+method+strconv.Itoa(client.ID), nil)
 	if err != nil {
 		return nil, err
 	}

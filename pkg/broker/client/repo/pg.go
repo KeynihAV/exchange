@@ -91,9 +91,9 @@ func (cr *ClientsRepo) Add(client *clientPkg.Client) error {
 	return nil
 }
 
-func (cr *ClientsRepo) GetBalance(client *clientPkg.Client) ([]*clientPkg.Position, error) {
+func (cr *ClientsRepo) GetBalance(clientID int) ([]*clientPkg.Position, error) {
 	result, err := cr.DB.Query(`SELECT id, clientID, ticker, volume, price, total
-		 FROM positions WHERE clientID = $1`, client.ID)
+		 FROM positions WHERE clientID = $1`, clientID)
 	if err != nil {
 		return nil, err
 	}

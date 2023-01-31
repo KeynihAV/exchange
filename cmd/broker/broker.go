@@ -97,7 +97,7 @@ func startBroker(db *sql.DB, config *configPkg.Config, logger *logging.Logger) e
 	r.HandleFunc("/api/v1/deal", dealsHandler.CreateOrder).Methods("POST")
 	r.HandleFunc("/api/v1/cancel/{order}", dealsHandler.CancelOrder).Methods("DELETE")
 	r.HandleFunc("/api/v1/orders/byClient/{client}", dealsHandler.OrdersByClient).Methods("GET")
-	r.HandleFunc("/api/v1/status", clientsHandler.GetBalance).Methods("GET")
+	r.HandleFunc("/api/v1/status/{client}", clientsHandler.GetBalance).Methods("GET")
 	r.HandleFunc("/api/v1/checkAuth", sessHandler.CheckAuth).Methods("POST")
 	r.HandleFunc("/api/v1/user/login_oauth", sessHandler.AuthCallback).Methods("GET")
 	r.HandleFunc("/metrics", promhttp.Handler().ServeHTTP)

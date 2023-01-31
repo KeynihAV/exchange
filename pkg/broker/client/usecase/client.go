@@ -41,6 +41,6 @@ func (cm *ClientsManager) CheckAndCreateClient(login string, ID int64) (*clientP
 	return client, nil
 }
 
-func (cm *ClientsManager) GetBalance(client *clientPkg.Client) ([]*clientPkg.Position, error) {
-	return cm.CR.GetBalance(client)
+func (cm *ClientsManager) GetBalance(clientID int) ([]*clientPkg.Position, error) {
+	return cm.CR.GetBalance(clientID)
 }
